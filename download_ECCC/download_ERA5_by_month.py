@@ -12,25 +12,15 @@ import xarray as xr
 c = cdsapi.Client()
 
 
-dataset_name = "ERA5_global"
+dataset_name = "S2S_ECCC"
 
 def ifSkip(dt):
 
     skip = False
-    if not ( dt.month in [10, 11, 12, 1, 2, 3, 4] ):
-        skip = True
 
     return skip
 
 nproc = 4
-# ERA5 data is output in hourly fashion.
-# Each dhrs specify the averaged time after downloading data
-# Example: dhrs = [ 3, 24, ] 
-dhrs = [ 24,] 
-
-for dhr in dhrs:
-    if 24 % dhr != 0:
-        raise Exception("Not cool. 24 / dhr (dhr = %d) is not an integer." % (dhr, ) )
 
 varnames = [
 #    'geopotential',
