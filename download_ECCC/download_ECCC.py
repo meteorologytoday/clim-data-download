@@ -4,14 +4,17 @@ exec(code)
 
 
 import traceback
-import cdsapi
+#import cdsapi
 import numpy as np
 import pandas as pd
 import xarray as xr
 import tools
-import shutils
+import shutil
 
-c = cdsapi.Client()
+from ecmwfapi import ECMWFDataServer
+server = ECMWFDataServer()
+
+#c = cdsapi.Client()
 
 output_dir_root = os.path.join(archive_root, "data")
 download_tmp_dir = os.path.join(output_dir_root, "tmp")
@@ -23,7 +26,7 @@ def ifSkip(dt):
 
     return skip
 
-nproc = 4
+nproc = 8
 
 
 # There are 4 requests to completely download the data in 
@@ -43,7 +46,6 @@ def generateRequest(model_version_dt, start_dts, ens_type, varset):
     req = {
         "dataset": "s2s",
         "class": "s2",
-        'format': 'netcdf',
         "expver": "prod",
         "model": "glob",
         "origin": "cwao",
@@ -54,7 +56,9 @@ def generateRequest(model_version_dt, start_dts, ens_type, varset):
      
     # Add in dates
     req["date"] = model_version_dt.strftime("%Y-%m-%d")
-    req["hdate"] = [ start_dt.strftime("%Y-%m-%d") for start_dt in start_dts ].join("/")
+    #print([ start_dt.strftime("%Y-%m-%d") for start_dt in start_dts ])
+
+    req["hdate"] = "/".join([ start_dt.strftime("%Y-%m-%d") for start_dt in start_dts ])
     #"date": "2019-09-12",
     #"hdate": "1998-09-12/1999-09-12/2000-09-12/2001-09-12",
     
@@ -63,7 +67,7 @@ def generateRequest(model_version_dt, start_dts, ens_type, varset):
         
         req["type"] = "cf"
 
-    elif ens_type == "pert"
+    elif ens_type == "pert":
         
         req["type"] = "pf"
         req["number"] = "1/2/3"
@@ -151,12 +155,19 @@ def doJob(req, output_file, output_dir):
     result = dict(output_file = output_file, output_file_full = output_file_full, req=req, status="UNKNOWN")
 
     tmp_file = os.path.join(download_tmp_dir, "%s.tmp" % output_file)
-    req.update(dict(output=tmp_file))
+    req.update(dict(target=tmp_file))
     
     try:
         print("Downloading file: %s" % ( tmp_file, ))
-        #c.retrieve(req)
-        #shutils.move(tmp_file, output_file_full)
+        server.retrieve(req)
+        
+        pleaseRun("grib_to_netcdf -o {output:s} {input:s}".format(
+            input =  tmp_file,
+            output = output_file_full,
+        ))
+
+        if os.path.isfile(output_file_full):
+            os.remove(tmp_file)
 
         result['status'] = 'OK'
 
@@ -179,43 +190,47 @@ failed_output_files = []
 beg_year = 1998
 end_year = 2017
 years = np.arange(beg_year, end_year+1)
-download_group_size_by_year = 5
+download_group_size_by_year = 1
 dts_in_year = pd.date_range("2001-01-01", "2001-12-31", freq="D", inclusive="both")
 
 year_groups = [
     years[download_group_size_by_year*i:download_group_size_by_year*(i+1)]
-    for i in range(np.ceil(len(years) / download_group_size_by_year))
+    for i in range(int(np.ceil(len(years) / download_group_size_by_year)))
 ]
 
 print("Year groups: ")
+print(year_groups)
 for i, year_group in enumerate(year_groups):
-    print("[%d] %s" % (i, year_group.join(", ")) )
+    print("[%d]" % (i,), year_group)
 
 
 input_args = []
 for model_version in ["GEPS5", "GEPS6"]:
 
+    print("[MODEL VERSION]: ", model_version)
+
     for dt in dts_in_year:
     
-        model_version_date = tools.modelVersionReforecastDateToModelVersionDate(model_version, start_dt)
+        model_version_date = tools.modelVersionReforecastDateToModelVersionDate(model_version, dt)
 
         if model_version_date is None:
             
-            print("The date %s is not in the database. Skip." % (dt.strftime("%m/%d"))
             continue
+            
+        print("The date %s exists on ECMWF database. " % (dt.strftime("%m/%d")))
 
         for year_group in year_groups:
             
             month = dt.month
             day = dt.day
-            start_dts = pd.date_range(
-                pd.Timestamp(year=year_group[0],  month=month, day=day),
-                pd.Timestamp(year=year_group[-1], month=month, day=day),
-                freq="Y",
-                inclusive="both",
-            )
-
+            start_dts = [
+                pd.Timestamp(year=y, month=month, day=day)
+                for y in year_group
+            ]
+            
             if len(start_dts) != len(year_group):
+                print(start_dts)
+                print(year_group)
                 raise Exception("Weird. Check.")
             
             
@@ -223,7 +238,8 @@ for model_version in ["GEPS5", "GEPS6"]:
 
                 for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
                     
-
+                    if varset == "ocn2d_avg" and model_version == "GEPS5":
+                        continue 
                     
                     output_dir = os.path.join(
                         output_dir_root,
@@ -233,12 +249,17 @@ for model_version in ["GEPS5", "GEPS6"]:
                     )
                     
                     Path(output_dir).mkdir(parents=True, exist_ok=True)
+                            
+                    if len(year_group) == 1:
+                        year_group_str = "%04d" % (year_group[0],)
+                    else:
+                        year_group_str = "%04d-%04d" % (year_group[0], year_group[-1])
                     
                     output_file = "ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{year_group_str:s}_{start_time:s}.nc".format(
                             model_version = model_version,
                             ens_type = ens_type,
                             varset = varset,
-                            year_group_str = "%04d-%04d" % (year_group[0], year_group[-1]),
+                            year_group_str = year_group_str,
                             start_time     = "%02d-%02d" % (month, day),
                     )
 
