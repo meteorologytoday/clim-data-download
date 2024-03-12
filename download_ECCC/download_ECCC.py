@@ -8,7 +8,7 @@ import traceback
 import numpy as np
 import pandas as pd
 import xarray as xr
-import tools
+import ECCC_tools
 import shutil
 
 from ecmwfapi import ECMWFDataServer
@@ -257,7 +257,7 @@ for model_version in ["GEPS5", "GEPS6"]:
 
     for dt in dts_in_year:
     
-        model_version_date = tools.modelVersionReforecastDateToModelVersionDate(model_version, dt)
+        model_version_date = ECCC_tools.modelVersionReforecastDateToModelVersionDate(model_version, dt)
 
         if model_version_date is None:
             
