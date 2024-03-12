@@ -8,14 +8,15 @@ server.retrieve({
     "dataset": "s2s",
     "date": "2024-03-01",
     "expver": "prod",
-    "hdate": "2015-03-01",
+    "hdate": "2002-03-01",
     "levtype": "o2d",
     "model": "glob",
     "origin": "cwao",
-    "param": "151131",
-    "step": "72-96",
+    "param": "151126/151131/151132/151145/151163/151175/151219/151225/174098",
+    "step": "0-24",
     "stream": "enfh",
     "time": "00:00:00",
     "type": "cf",
-    "target": "output"
+    "target": "output_o2d"
 })
+

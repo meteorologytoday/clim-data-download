@@ -16,9 +16,7 @@ server = ECMWFDataServer()
 
 #c = cdsapi.Client()
 
-file_exists = np.vectorize(os.path.exists)
-
-output_dir_root = os.path.join(archive_root, "data20")
+output_dir_root = os.path.join(archive_root, "data")
 download_tmp_dir = os.path.join(output_dir_root, "tmp")
 Path(download_tmp_dir).mkdir(parents=True, exist_ok=True)
 
@@ -28,7 +26,7 @@ def ifSkip(dt):
 
     return skip
 
-nproc = 4
+nproc = 8
 
 
 # There are 4 requests to completely download the data in 
@@ -42,7 +40,7 @@ nproc = 4
 #  6. 9 2D ocean variables
 
 
-def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
+def generateRequest(model_version_dt, start_dts, ens_type, varset):
 
     # Shared properties
     req = {
@@ -58,9 +56,9 @@ def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
      
     # Add in dates
     req["date"] = model_version_dt.strftime("%Y-%m-%d")
-    #print([ start_dt.strftime("%Y-%m-%d") for start_dt in starttime_dts ])
+    #print([ start_dt.strftime("%Y-%m-%d") for start_dt in start_dts ])
 
-    req["hdate"] = "/".join([ start_dt.strftime("%Y-%m-%d") for start_dt in starttime_dts ])
+    req["hdate"] = "/".join([ start_dt.strftime("%Y-%m-%d") for start_dt in start_dts ])
     #"date": "2019-09-12",
     #"hdate": "1998-09-12/1999-09-12/2000-09-12/2001-09-12",
     
@@ -148,72 +146,28 @@ def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
 beg_time = pd.Timestamp(year=beg_time.year, month=beg_time.month, day=1)
 end_time = pd.Timestamp(year=end_time.year, month=end_time.month, day=1)
 
-number_of_leadtime = 32 
+ 
 
 
-def doJob(req, varset, starttime_md, year_group, output_file_group, output_separate_files):
+def doJob(req, output_file, output_dir):
 
-    result = dict(output_files = output_separate_files, req=req, status="UNKNOWN")
+    output_file_full = os.path.join(output_dir, output_file) 
+    result = dict(output_file = output_file, output_file_full = output_file_full, req=req, status="UNKNOWN")
 
-    tmp_file = os.path.join(download_tmp_dir, "%s.grib" % output_file_group)
-    tmp_file2 = os.path.join(download_tmp_dir, "%s.nc_flat" % output_file_group)
+    tmp_file = os.path.join(download_tmp_dir, "%s.tmp" % output_file)
     req.update(dict(target=tmp_file))
-   
+    
     try:
-
-
         print("Downloading file: %s" % ( tmp_file, ))
         server.retrieve(req)
-    
+        
         pleaseRun("grib_to_netcdf -o {output:s} {input:s}".format(
             input =  tmp_file,
-            output = tmp_file2,
+            output = output_file_full,
         ))
 
-        # ============ Check if flattened data has correct years =============
-        ds = xr.open_dataset(tmp_file2)
-        received_dts = ds.coords["time"]#.to_numpy()
-        
-        # First is the number of timesteps
-        if len(received_dts) != number_of_leadtime * len(year_group):
-            raise Exception("The downloaded data has %d time steps but we are expecting %d time steps" % (
-                len(received_dts),
-                number_of_leadtime * len(year_group),
-            ))
-        
-        # Second is to check datetime
-        if varset in [ "surf_avg", "ocn2d_avg"]:
-           fixed_offset = pd.Timedelta(days=0)
-        else:
-           fixed_offset = pd.Timedelta(days=1)
-
-        for i, test_year in enumerate(year_group):
-            
-            test_dts = received_dts[i*number_of_leadtime:(i+1)*number_of_leadtime]
-            
-            expected_dts = np.array([
-                (pd.Timestamp(year=test_year, month=starttime_md.month, day=starttime_md.day) + pd.Timedelta(days=j) + fixed_offset).to_datetime64()
-                for j in range(number_of_leadtime)
-            ])
-
-            if not np.all(test_dts == expected_dts):
-                print("test_dts     = ", test_dts)
-                print("expected_dts = ", expected_dts)
-                raise Exception("The downloaded data do not have correct expecting datetime. The received dts are: %s" % (str(received_years),))
-
-        # ====================================================================
-
-        for i, output_year in enumerate(year_group):
-            pleaseRun("ncks -O -d time,{begin_idx:d},{end_idx:d} {input:s} {output:s}".format(
-                begin_idx = i     * number_of_leadtime,
-                end_idx   = (i+1) * number_of_leadtime - 1,
-                input = tmp_file2,
-                output = output_separate_files[i],
-            ))
-            
-        for remove_file in [tmp_file, tmp_file2]:
-            if os.path.isfile(remove_file):
-                os.remove(remove_file)
+        if os.path.isfile(output_file_full):
+            os.remove(tmp_file)
 
         result['status'] = 'OK'
 
@@ -225,7 +179,7 @@ def doJob(req, varset, starttime_md, year_group, output_file_group, output_separ
         
         print(e)
 
-    print("Finish generating files %s " % (", ".join(output_separate_files),))
+    print("Finish generating file %s " % (output_file_full,))
 
     return result
 
@@ -236,7 +190,7 @@ failed_output_files = []
 beg_year = 1998
 end_year = 2017
 years = np.arange(beg_year, end_year+1)
-download_group_size_by_year = 20
+download_group_size_by_year = 1
 dts_in_year = pd.date_range("2001-01-01", "2001-12-31", freq="D", inclusive="both")
 
 year_groups = [
@@ -269,33 +223,24 @@ for model_version in ["GEPS5", "GEPS6"]:
             
             month = dt.month
             day = dt.day
-            starttime_dts = [
+            start_dts = [
                 pd.Timestamp(year=y, month=month, day=day)
                 for y in year_group
             ]
             
-            if len(starttime_dts) != len(year_group):
-                print(starttime_dts)
+            if len(start_dts) != len(year_group):
+                print(start_dts)
                 print(year_group)
                 raise Exception("Weird. Check.")
             
             
             for ens_type in ["ctl", "pert"]:
 
-                for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
-                #for varset in ["UVTZ", "Q", "surf_inst"]:
+                #for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
+                for varset in ["UVTZ", "Q", "surf_inst"]:
                     
-                    if varset == "ocn2d_avg":
-
-                        # GEPS5 is persistent SST run. There is no ocean model.
-                        if model_version == "GEPS5":
-                            continue
-
-                        # According to Dr. Hai Lin, 
-                        # ECCC started providing ocean data after 2020-02-06.
-                        # Therefore, there is no ocean data prior to that date.
-                        if model_version_date < pd.Timestamp("2020-02-06"):
-                            continue
+                    if varset == "ocn2d_avg" and model_version == "GEPS5":
+                        continue 
                     
                     output_dir = os.path.join(
                         output_dir_root,
@@ -306,42 +251,30 @@ for model_version in ["GEPS5", "GEPS6"]:
                     
                     Path(output_dir).mkdir(parents=True, exist_ok=True)
                             
-                    output_file_group = "ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{year_group_str:s}_{start_time:s}.nc".format(
+                    if len(year_group) == 1:
+                        year_group_str = "%04d" % (year_group[0],)
+                    else:
+                        year_group_str = "%04d-%04d" % (year_group[0], year_group[-1])
+                    
+                    output_file = "ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{year_group_str:s}_{start_time:s}.nc".format(
                             model_version = model_version,
                             ens_type = ens_type,
                             varset = varset,
-                            year_group_str = "%04d-%04d" % (year_group[0], year_group[-1]),
+                            year_group_str = year_group_str,
                             start_time     = "%02d-%02d" % (month, day),
                     )
 
-                    output_separate_files = [                    
-                        "{save_dir:s}/ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{year:04d}_{start_time:s}.nc".format(
-                            save_dir = output_dir, 
-                            model_version = model_version,
-                            ens_type = ens_type,
-                            varset = varset,
-                            year = _year,
-                            start_time     = "%02d-%02d" % (month, day),
-                        )
-                        for _year in year_group
-                    ]
-                    
-                    
-                    #output_file_full = os.path.join(output_dir, output_file)
-                    
-                    
-                    
-                    if np.all(file_exists(output_separate_files)):
-                        
-                        print("Files %s already exist. Skip it." % (", ".join(output_separate_files),))
-                        continue
-                            
-                    req = generateRequest(model_version_date, starttime_dts, ens_type, varset)
-                    # pick the first starttime_dts to only give month and day
-                    input_args.append((req, varset, starttime_dts[0], year_group, output_file_group, output_separate_files))
-                    
                    
+                    output_file_full = os.path.join(output_dir, output_file)
 
+                    if os.path.exists(output_file_full):
+                        
+                        print("File %s already exists. Skip it." % (output_file_full,))
+                        continue
+                    
+                    req = generateRequest(model_version_date, start_dts, ens_type, varset)
+                    input_args.append((req, output_file, output_dir))
+            
 
 with Pool(processes=nproc) as pool:
 
@@ -349,7 +282,7 @@ with Pool(processes=nproc) as pool:
 
     for i, result in enumerate(results):
         if result['status'] != 'OK':
-            print('!!! Failed to generate output file %s.' % (",".join(result['output_files'],)))
+            print('!!! Failed to generate output file %s.' % (result['output_file_full'],))
             failed_dates.append(result['output_file_full'])
 
 
