@@ -35,7 +35,7 @@ beg_time = datetime.datetime(1998,    1,  1)
 end_time = datetime.datetime(2018,    5, 1)
 
 
-archive_root = "data"
+archive_root = "ECCC_data"
 
 
 g0 = 9.81

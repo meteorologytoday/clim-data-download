@@ -4,7 +4,7 @@ import os
 
 
 
-archive_root="./data/data20"
+archive_root="./ECCC_data/data20"
 
 
 # The bounds are included
