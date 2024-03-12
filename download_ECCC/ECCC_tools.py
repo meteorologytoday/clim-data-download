@@ -4,7 +4,7 @@ import pandas as pd
 
 archive_root="./data/data20"
 
-def open_dataset(varset, model_version, start_time, step):
+def open_dataset(varset, model_version, start_time):
    
     merge_data = [] 
     # Load control and perturbation
@@ -49,8 +49,6 @@ if __name__ == "__main__":
     varset = "Q"
     model_version = "GEPS5"
     start_time = pd.Timestamp("2017-01-03")
-    step = slice(0, 5)
-
-    ds = open_dataset(varset, model_version, start_time, step) 
+    ds = open_dataset(varset, model_version, start_time) 
    
     print(ds) 
