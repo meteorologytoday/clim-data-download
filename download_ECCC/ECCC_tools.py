@@ -40,6 +40,24 @@ def printValidModelVersionDates():
             print("[%s - %d] %s " % (model_version, i, model_version_date.strftime("%Y-%m-%d")))
 
 
+ECCC_longshortname_mapping = {
+    "surface_pressure": "sp",
+    "mean_sea_level_pressure": "msl",
+    "10m_u_component_of_wind":  "u10",
+    "10m_v_component_of_wind":  "v10",
+}
+
+mapping_varset_varname = {
+    'Q' : ['Q',],
+    'UVTZ' : ['U',],
+}
+
+mapping_varname_varset = {}
+for varset, varnames in mapping_varset_varname.items():
+    for varname in varnames:
+        mapping_varname_varset[varname] = varset
+
+
 
 
 """
@@ -69,18 +87,12 @@ def modelVersionReforecastDateToModelVersionDate(model_version, reforecast_date)
 
 
 
-def open_dataset(varset, model_version, start_time, step):
+def open_dataset(rawpost, varset, model_version, start_time):
    
-    merge_data = [] 
-    # Load control and perturbation
-    for ens_type in ["ctl", "pert"]:
-        
-        save_dir = os.path.join(
-            archive_root,
-            model_version,
-            ens_type,
-            varset,
-        )
+
+
+
+    if rawpost == "postprocessed":
         
         start_time_str = start_time.strftime("%Y_%m-%d")
           
@@ -92,20 +104,54 @@ def open_dataset(varset, model_version, start_time, step):
             start_time = start_time_str,
         )
 
-
         ds = xr.open_dataset(loading_filename)
-        ds = ds.rename_dims(time="lead_time").rename_vars(time="lead_time").expand_dims(dim={'start_time': [start_time,]}) 
-        #print(ds)
-        if ens_type == "ctl":
-            ds = ds.expand_dims(dim={'number': [0,]}, axis=2)
+
+       
+    elif rawpost == "raw":
+        merge_data = [] 
+        # Load control and perturbation
+        for ens_type in ["ctl", "pert"]:
+            
+            save_dir = os.path.join(
+                archive_root,
+                rawpost,
+                model_version,
+                ens_type,
+                varset,
+            )
+            
+            start_time_str = start_time.strftime("%Y_%m-%d")
+              
+            loading_filename = "{save_dir:s}/ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{start_time:s}.nc".format(
+                save_dir = save_dir,
+                model_version = model_version,
+                ens_type = ens_type,
+                varset = varset,
+                start_time = start_time_str,
+            )
 
 
-        #print("### ", ens_type)
-        #print(ds)
+            ds = xr.open_dataset(loading_filename)
+            ds = ds.rename_dims(time="lead_time").rename_vars(time="lead_time").expand_dims(dim={'start_time': [start_time,]}) 
 
-        merge_data.append(ds)
+            #print(ds)
+            if ens_type == "ctl":
+                ds = ds.expand_dims(dim={'number': [0,]}, axis=2)
 
-    ds = xr.merge(merge_data)
+
+            #print("### ", ens_type)
+            #print(ds)
+            
+            ds = ds.isel(latitude=slice(None, None, -1))
+
+            merge_data.append(ds)
+
+        ds = xr.merge(merge_data)
+
+    else:
+
+        raise Exception("Unknown rawpost value. Only accept: `raw` and `postprocessed`.")
+
 
     return ds
 
@@ -113,6 +159,7 @@ def open_dataset(varset, model_version, start_time, step):
 if __name__ == "__main__":   
 
     # Part I: model dates and such
+    print("Part I: Test model dates finding model version date")
 
     printValidModelVersionDates()
 
@@ -131,13 +178,13 @@ if __name__ == "__main__":
     
     # Part II: Loading model data
     
-    print("Test loading data...")
+    print("Part II: Test loading model data...")
     print("Current package's global variable `archive_root` = '%s'" % (archive_root,))
     varset = "Q"
     model_version = "GEPS5"
     start_time = pd.Timestamp("2017-01-03")
     step = slice(0, 5)
 
-    ds = open_dataset(varset, model_version, start_time, step) 
+    ds = open_dataset(varset, model_version, start_time) 
     print(ds) 
  

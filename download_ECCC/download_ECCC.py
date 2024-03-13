@@ -18,7 +18,7 @@ server = ECMWFDataServer()
 
 file_exists = np.vectorize(os.path.exists)
 
-output_dir_root = os.path.join(archive_root, "data20")
+output_dir_root = os.path.join(archive_root, "data20", "raw")
 download_tmp_dir = os.path.join(output_dir_root, "tmp")
 Path(download_tmp_dir).mkdir(parents=True, exist_ok=True)
 
