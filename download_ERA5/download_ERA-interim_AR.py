@@ -63,8 +63,8 @@ def computeARvariables(ds):
     ds_AR = xr.Dataset(
         data_vars=AR_vars,
         coords=dict(
-            lon=lon,
-            lat=lat,
+            longitude=lon,
+            latitude=lat,
             time=ds.coords["time"],
             reference_time=reference_time,
         ),

@@ -15,6 +15,7 @@ def ifSkip(dt):
 
     skip = False
 
+    """
     if dt.month in [5,6,7,8]:
         skip = True
 
@@ -23,6 +24,7 @@ def ifSkip(dt):
 
     if dt.month == 9 and dt.day < 15:
         skip = True
+    """
 
     return skip
 
@@ -31,8 +33,8 @@ def ifSkip(dt):
 #end_time = datetime.datetime(2017,    5, 1)
 
 # This is for ECCC s2s project
-beg_time = datetime.datetime(1998,    1,  1)
-end_time = datetime.datetime(2018,    5, 1)
+beg_time = datetime.datetime(1997,   12,  1)
+end_time = datetime.datetime(2018,    2, 1)
 
 
 archive_root = "data"

@@ -126,10 +126,16 @@ def work(dt, detect_phase=False):
 
                  
             print("[%s] Merging data..." % (mmddhh_str,))
-
-            ds_new = xr.merge(merged_data).rename_dims(dict(latitude="lat", longitude="lon"))
+           
+            # 2024-03-20: The reassignment is fix a mistake when producing
+            # AR variables in download_ERA-interim_AR.py. I created
+            # latitude and lat, longitude and lon together.
+            ds_new = xr.merge(merged_data).assign_coords(dict(
+                latitude = ds.coords['lat'].to_numpy(),
+                longitude = ds.coords['lon'].to_numpy(),
+            ))#rename_dims(dict(latitude="lat", longitude="lon"))
             ds_new.attrs["method"] = args.method
-
+            
             print("[%s] Outputting file: %s" % (mmddhh_str, output_filename,))
             ds_new.to_netcdf(
                 output_filename,
@@ -153,8 +159,8 @@ def work(dt, detect_phase=False):
 
 def ifSkip(dt):
 
-    if dt.month in [5,6,7,8]:
-        return True
+    #if dt.month in [5,6,7,8]:
+    #    return True
 
     return False
 
