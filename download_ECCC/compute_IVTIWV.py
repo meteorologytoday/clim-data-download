@@ -10,7 +10,7 @@ import os
 
 archive_root = "ECCC_data/data20"
 
-nproc = 1
+nproc = 4
 
 # inclusive
 year_rng = [1998, 2017]
@@ -205,8 +205,8 @@ with Pool(processes=nproc) as pool:
 print("Tasks finished.")
 
 print("Failed output files: ")
-for i, failed_output_file in enumerate(failed_output_files):
-    print("%d : %s" % (i+1, failed_output_file,))
+for i, failed_detail in enumerate(failed_dates):
+    print("%d : %s" % (i+1, str(failed_detail['job_detail']),))
 
 print("Done.")
 

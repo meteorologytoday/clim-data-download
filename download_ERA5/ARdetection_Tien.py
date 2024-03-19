@@ -77,7 +77,7 @@ def ARFilter_ANOMLEN2(AR_obj):
     return result
 
 
-def ARFilter_ANOMLEN3(AR_obj):
+def ARFilter_HMGFSC24(AR_obj):
 
     result = True
     

@@ -128,7 +128,7 @@ def doJob(dt, detect_phase=False):
             )
 
 
-        elif args.method in ["HMGFSC24", "ANOMLEN3"]: 
+        elif args.method == "ANOMLEN3": 
 
             # Remember, the IVT_clim here should refer to 85th percentile
             # user should provide the correct information with
@@ -139,7 +139,7 @@ def doJob(dt, detect_phase=False):
                 IVT_x, IVT_y, llat, llon, area,
                 IVT_threshold=IVT_clim, # Remember, the IVT_clim here should refer to 85th percentile
                 weight=IVT,
-                filter_func = ARdetection_Tien.ARFilter_HMGFSC24,
+                filter_func = ARdetection_Tien.ARFilter_ANOMLEN3,
             )
 
         elif args.method == "ANOMLEN4": 
