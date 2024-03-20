@@ -64,7 +64,13 @@ def doJob(dt, detect_phase=False):
         # Load anom
         ds_full = xr.open_dataset(AR_full_file)
         ds_clim = xr.open_dataset(AR_clim_file)
-        
+       
+        ds_clim = ds_clim.rename(dict(latitude="lat", longitude="lon"))
+
+        #print(ds_full)
+        #print(ds_clim)
+        #import time
+        #time.sleep(10) 
         old_lon = ds_full.coords["lon"].to_numpy()
 
         # find the lon = args.leftmost_lon

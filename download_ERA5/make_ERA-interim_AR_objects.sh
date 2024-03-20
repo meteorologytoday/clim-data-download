@@ -1,14 +1,14 @@
 #!/bin/bash
 
 data_dir=data/ERAinterim/AR/24hr
-year_beg=1992
-year_end=2018
+year_beg=1998
+year_end=2017
 
 
 
 for method in HMGFSC24; do
 
-    output_dir=data/ERAinterim/ARObjects/${method}
+    output_dir=data/ERAinterim/ARObjects/${method}_threshold-${year_beg}-${year_end}
 
     mkdir -p $output_dir
 
@@ -28,7 +28,7 @@ for method in HMGFSC24; do
         exit 1
     fi
 
-    input_clim_dir="climatology_1993-2017_15days_ERAInterim_${clim_dir_suffix}"
+    input_clim_dir="climatology_${year_beg}-${year_end}_15days_ERAInterim_${clim_dir_suffix}"
     
 
     python3 make_ERA-interim_AR_objects.py \
