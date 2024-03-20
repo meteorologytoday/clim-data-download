@@ -21,7 +21,7 @@ for method in q85 ; do
         --year-end $year_end \
         --mavg-days $ndays  \
         --method "$method" \
-        --nproc 5
+        --nproc 1
 
 done
 

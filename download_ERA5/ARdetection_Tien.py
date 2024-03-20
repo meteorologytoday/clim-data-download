@@ -2,8 +2,9 @@ import numpy as np
 import xarray as xr
 from scipy.ndimage import label, generate_binary_structure
 from scipy import spatial
-from earth_constants import r_E as r_earth
 import sphereTools
+
+r_earth=6371e3
 
 """
     `pts` must have the shape of (npts, dim), where dim=2 in AR detection.
@@ -102,7 +103,7 @@ def ARFilter_HMGFSC24(AR_obj):
     southern_hemispheric_AR = not northern_hemispheric_AR
     if (northern_hemispheric_AR and AR_obj['mean_IVT_y'] < 50.0) or (southern_hemispheric_AR and AR_obj['mean_IVT_y'] > -50.0):
         return False
-  
+ 
     return result
 
 def ARFilter_ANOMLEN4(AR_obj):
@@ -134,7 +135,9 @@ def ARFilter_ANOMLEN4(AR_obj):
     return result
 
 
-
+"""
+coord_lat and coord_lon are assumed to be degrees
+"""
 def detectARObjects(IVT_x, IVT_y, coord_lat, coord_lon, area, IVT_threshold=500.0, weight=None, filter_func=ARFilter_ANOMLEN2):
 
     # Pseudo code: 
@@ -166,6 +169,8 @@ def detectARObjects(IVT_x, IVT_y, coord_lat, coord_lon, area, IVT_threshold=500.
         sum_covered_area = np.sum(covered_area)
 
         if Npts <= 3:
+            
+            labeled_array[labeled_array == feature_n] = 0.0
             print("Not enough points. Skip this feature.")
             continue
 

@@ -2,7 +2,7 @@ with open("shared_header.py", "rb") as source_file:
     code = compile(source_file.read(), "shared_header.py", "exec")
 exec(code)
 
-
+import time
 import traceback
 #import cdsapi
 import numpy as np
@@ -18,7 +18,7 @@ server = ECMWFDataServer()
 
 file_exists = np.vectorize(os.path.exists)
 
-output_dir_root = os.path.join(archive_root, "data20", "raw")
+output_dir_root = os.path.join(archive_root, "data20_update", "raw")
 download_tmp_dir = os.path.join(output_dir_root, "tmp")
 Path(download_tmp_dir).mkdir(parents=True, exist_ok=True)
 
@@ -28,7 +28,7 @@ def ifSkip(dt):
 
     return skip
 
-nproc = 4
+nproc = 3
 
 
 # There are 4 requests to completely download the data in 
@@ -150,13 +150,14 @@ end_time = pd.Timestamp(year=end_time.year, month=end_time.month, day=1)
 
 number_of_leadtime = 32 
 
-
 def doJob(req, varset, starttime_md, year_group, output_file_group, output_separate_files):
 
     result = dict(output_files = output_separate_files, req=req, status="UNKNOWN")
 
     tmp_file = os.path.join(download_tmp_dir, "%s.grib" % output_file_group)
     tmp_file2 = os.path.join(download_tmp_dir, "%s.nc_flat" % output_file_group)
+    tmp_file3 = os.path.join(download_tmp_dir, "%s.nc_before_reorg" % output_file_group)
+
     req.update(dict(target=tmp_file))
    
     try:
@@ -171,7 +172,7 @@ def doJob(req, varset, starttime_md, year_group, output_file_group, output_separ
         ))
 
         # ============ Check if flattened data has correct years =============
-        ds = xr.open_dataset(tmp_file2)
+        ds = xr.open_dataset(tmp_file2, engine="netcdf4")
         received_dts = ds.coords["time"]#.to_numpy()
         
         # First is the number of timesteps
@@ -204,14 +205,59 @@ def doJob(req, varset, starttime_md, year_group, output_file_group, output_separ
         # ====================================================================
 
         for i, output_year in enumerate(year_group):
+            
             pleaseRun("ncks -O -d time,{begin_idx:d},{end_idx:d} {input:s} {output:s}".format(
                 begin_idx = i     * number_of_leadtime,
                 end_idx   = (i+1) * number_of_leadtime - 1,
                 input = tmp_file2,
-                output = output_separate_files[i],
+                output = tmp_file3,
             ))
+
+
+            # Now change time to lead_time and pre-pend a 
+            # start_time dimension
+            starttime = pd.Timestamp(year=output_year, month=starttime_md.month, day=starttime_md.day)
+            starttime_da = xr.DataArray(
+                data = [ int( (starttime - pd.Timestamp("1970-01-01") ) / pd.Timedelta(hours=1) ) ],
+                dims = ["start_time"],
+                attrs=dict(
+                    description="Model start time",
+                    units="hours since 1970-01-01 00:00:00",
+                    calendar = "proleptic_gregorian",
+                )
+            )
+                
+            offset = 12 if varset in ["surf_avg", "ocn2d_avg"] else 24
+            leadtime_da = xr.DataArray(
+                data=24 * np.arange(number_of_leadtime) + offset,  # for average variable its at the noon
+                dims=["lead_time"],
+                attrs=dict(
+                    description="Lead time in hours",
+                    units="hours",
+                ),
+            )
+
+            ds = xr.open_dataset(tmp_file3, engine="netcdf4")
+            ds = ds.rename_dims(dict(time="lead_time")).assign_coords(
+                dict(
+                    lead_time = leadtime_da,
+                ) 
+            )
+
+            ds = ds.drop_vars('time').expand_dims(
+                dim={ "start_time" : starttime_da },
+                axis=0
+            ).assign_coords( # Need to do this again because expand_dims does not propagate starttime_da attributes
+                start_time = starttime_da
+            )
+
+            ds.to_netcdf(
+                output_separate_files[i],
+                unlimited_dims="start_time",
+            )
+
             
-        for remove_file in [tmp_file, tmp_file2]:
+        for remove_file in [tmp_file, tmp_file2, tmp_file3]:
             if os.path.isfile(remove_file):
                 os.remove(remove_file)
 
@@ -284,6 +330,7 @@ for model_version in ["GEPS5", "GEPS6"]:
 
                 for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
                 #for varset in ["UVTZ", "Q", "surf_inst"]:
+                #for varset in ["W",]:
                     
                     if varset == "ocn2d_avg":
 

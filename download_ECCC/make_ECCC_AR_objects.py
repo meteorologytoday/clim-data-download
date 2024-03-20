@@ -1,215 +1,292 @@
-with open("shared_header.py", "rb") as source_file:
-    code = compile(source_file.read(), "shared_header.py", "exec")
-exec(code)
-
+from multiprocessing import Pool
+import multiprocessing
+from pathlib import Path
 import ARdetection_Tien
 import numpy as np
 import xarray as xr
 import pandas as pd
 import argparse
-from earth_constants import r_E
+
+import ECCC_tools
+import traceback
+import os
+
+import time
+
+r_E = 6371e3
+Nobj_max = 50
+model_versions = ['GEPS5', "GEPS6"]
+
+
+"""
+    Assume the input file has dimension [latitude, longitude]
+"""
+def detectAR(ds_full, ds_clim, AR_algo):
+
+    old_lon = ds_full.coords["longitude"].to_numpy()
+
+    # find the lon = args.leftmost_lon
+    lon_first_zero = np.argmax(ds_full.coords["longitude"].to_numpy() >= args.leftmost_lon)
+
+    ds_full = ds_full.roll(longitude=-lon_first_zero, roll_coords=True)
+    ds_clim = ds_clim.roll(longitude=-lon_first_zero, roll_coords=True)
+
+    lat = ds_full.coords["latitude"].to_numpy() 
+    lon = old_lon  % 360
+
+    # For some reason we need to reassign it otherwise the contourf will be broken... why??? 
+    ds_full = ds_full.assign_coords(longitude=lon) 
+    ds_clim = ds_clim.assign_coords(longitude=lon) 
+    
+    IVT_x = ds_full.IVT_x[:, :].to_numpy()
+    IVT_y = ds_full.IVT_y[:, :].to_numpy()
+    IVT = np.sqrt(IVT_x**2 + IVT_y**2)
+    IVT_clim = ds_clim.IVT[:, :].to_numpy()
+
+    # This is in degrees
+    llat, llon = np.meshgrid(lat, lon, indexing='ij')
+
+    # dlat, dlon are in radians
+    dlat = np.zeros_like(lat)
+
+    _tmp = np.deg2rad(lat[1:] - lat[:-1])
+    dlat[1:-1] = (_tmp[:-1] + _tmp[1:]) / 2.0
+    dlat[0] = dlat[1]
+    dlat[-1] = dlat[-2]
+
+    if np.any(dlat <= 0):
+        raise Exception("Negative dlat! %s" % (str(dlat)))
+
+    # assume equally spaced lon
+    dlon = np.deg2rad(lon[1] - lon[0])
+
+    area = r_E**2 * np.cos(np.deg2rad(llat)) * dlon * dlat[:, None]
+
+    if AR_algo in ["HMGFSC24", "ANOMLEN3"]: 
+
+        # Remember, the IVT_clim here should refer to 85th percentile
+        # user should provide the correct information with
+        # `--AR-clim-dir` parameter
+        IVT_clim[IVT_clim < 100.0] = 100.0
+
+        labeled_array, AR_objs = ARdetection_Tien.detectARObjects(
+            IVT_x, IVT_y, llat, llon, area,
+            IVT_threshold=IVT_clim, # Remember, the IVT_clim here should refer to 85th percentile
+            weight=IVT,
+            filter_func = ARdetection_Tien.ARFilter_HMGFSC24,
+        )
+
+    else:
+        raise Exception("Unknown AR algorithm: %s" % (args.AR_algo,))
+      
+    # Convert AR object array into Dataset format
+    Nobj = len(AR_objs)
+    if Nobj > Nobj_max:
+        raise Exception("%d AR objs detected, exceeding the limit of %d" % (Nobj, Nobj_max))
+
+    data_output = dict(
+        feature_n    = np.zeros((Nobj_max,), dtype=int) - 1,
+        area         = np.zeros((Nobj_max,),) + np.nan,
+        length       = np.zeros((Nobj_max,),) + np.nan,
+        centroid_lat = np.zeros((Nobj_max,),) + np.nan,
+        centroid_lon = np.zeros((Nobj_max,),) + np.nan,
+    )
+
+    for i, AR_obj in enumerate(AR_objs):
+        data_output['feature_n'][i] = AR_obj['feature_n']
+        data_output['area'][i]      = AR_obj['area']
+        data_output['length'][i]    = AR_obj['length']
+        data_output['centroid_lat'][i] = AR_obj['centroid'][0]
+        data_output['centroid_lon'][i] = AR_obj['centroid'][1]
+    
+
+ 
+    # Make Dataset
+    ds_out = xr.Dataset(
+
+        data_vars=dict(
+            map          = (["latitude", "longitude"], labeled_array),
+            feature_n    = (["ARobj", ], data_output["feature_n"]),
+            length       = (["ARobj", ], data_output["length"]),
+            area         = (["ARobj", ], data_output["area"]),
+            centroid_lat = (["ARobj", ], data_output["centroid_lat"]),
+            centroid_lon = (["ARobj", ], data_output["centroid_lon"]),
+        ),
+
+        coords=dict(
+            longitude=(["longitude"], old_lon, dict(units="degrees_east")),
+            latitude=(["latitude"], lat, dict(units="degrees_north")),
+        ),
+
+        attrs=dict(description="AR objects file."),
+    )
+
+    ds_out = ds_out.roll(longitude=lon_first_zero, roll_coords=False)
+    
+    return ds_out
+
+
+
+
 
 parser = argparse.ArgumentParser(
-                    prog = 'make_ERA5_AR_objects.py',
+                    prog = 'make_ECCC_AR_objects.py',
                     description = 'Postprocess ECCO data (Mixed-Layer integrated).',
 )
 
-parser.add_argument('--input-dir', required=True, type=str)
-parser.add_argument('--output-dir', required=True, type=str)
-parser.add_argument('--input-file-prefix', type=str, required=True)
+parser.add_argument('--year-rng', type=int, nargs=2, required=True)
+parser.add_argument('--archive-root', type=str, required=True)
 parser.add_argument('--input-clim-dir', required=True, type=str)
 parser.add_argument('--input-clim-file-prefix', type=str, required=True)
-parser.add_argument('--output-file-prefix', type=str, default="ARobjs_")
-parser.add_argument('--method', required=True, type=str, choices=["ANOMLEN", "ANOMLEN2", "ANOMLEN3", "ANOMLEN4"])
+parser.add_argument('--method', required=True, type=str, choices=["HMGFSC24"])
 parser.add_argument('--leftmost-lon', type=float, help='The leftmost longitude on the map. It matters when doing object detection finding connectedness.', default=0)
 parser.add_argument('--nproc', type=int, default=1)
 args = parser.parse_args()
 print(args)
 
-
-input_dir = args.input_dir
-output_dir = args.output_dir
-input_file_prefix = args.input_file_prefix
+archive_root = args.archive_root
 input_clim_file_prefix = args.input_clim_file_prefix
-output_file_prefix = args.output_file_prefix
 
-beg_time_str = beg_time.strftime("%Y-%m-%d")
-end_time_str = end_time.strftime("%Y-%m-%d")
+# inclusive
+year_rng = args.year_rng
 
-def doJob(dt, detect_phase=False):
 
-    jobname = dt.strftime("%Y-%m-%d")
-    result = dict(status="UNKNOWN", dt=dt, detect_phase=detect_phase)
+def doJob(job_detail, detect_phase=False):
 
-    try: 
+    # phase \in ['detect', 'work']
+    result = dict(job_detail=job_detail, status="UNKNOWN", need_work=False, detect_phase=detect_phase, output_file_fullpath=None)
+
+    output_varset = "ARObjets"
+    try:
+
+
+        start_time = job_detail['start_time']
+        start_time_str = job_detail['start_time'].strftime("%Y-%m-%d")
+       
+        print("[%s] Start job." % (start_time_str,))
+ 
+        output_dir = os.path.join(
+            archive_root,
+            "postprocessed",
+            job_detail['model_version'],    
+            output_varset,
+        )
+
+        output_file = "ECCC-S2S_{model_version:s}_{varset:s}_{start_time:s}.nc".format(
+            model_version = job_detail['model_version'],
+            varset        = output_varset,
+            start_time    = job_detail['start_time'].strftime("%Y_%m-%d"),
+        )
+
+        output_file_fullpath = os.path.join(
+            output_dir,
+            output_file,
+        )
         
-        # Load file
-        AR_clim_file = "%s/%s%s.nc" % (args.input_clim_dir, input_clim_file_prefix, dt.strftime("%m-%d_%H"))
-        AR_full_file = "%s/%s%s.nc" % (input_dir,        input_file_prefix,      dt.strftime("%Y-%m-%d_%H"))
-        output_file  = "%s/%s%s.nc"  % (output_dir,      output_file_prefix,     dt.strftime("%Y-%m-%d_%H"))
+        result['output_file_fullpath'] = output_file_fullpath
+ 
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-        # Test if file exists
-        if detect_phase == True:
+        # First round is just to decide which files
+        # to be processed to enhance parallel job 
+        # distribution. I use variable `phase` to label
+        # this stage.
+        file_exists = os.path.isfile(output_file_fullpath)
 
-            result["need_work"] = not os.path.isfile(output_file)
-            result["status"] = "OK"
+        if detect_phase is True:
+            result['need_work'] = not file_exists
+            result['status'] = 'OK' 
             return result
 
-        
-        print("[%s] Making %s with input files: %s, %s." % (jobname, output_file, AR_full_file, AR_clim_file))
 
+        # Load file
+
+        input_varset = "AR"
+        input_dir = os.path.join(
+            archive_root,
+            "postprocessed",
+            job_detail['model_version'],    
+            input_varset,
+        )
+
+        input_file = "ECCC-S2S_{model_version:s}_{varset:s}_{start_time:s}.nc".format(
+            model_version = job_detail['model_version'],
+            varset        = input_varset,
+            start_time    = job_detail['start_time'].strftime("%Y_%m-%d"),
+        )
+
+        input_file_fullpath = os.path.join(
+            input_dir,
+            input_file,
+        )
+ 
+        ds_in = xr.open_dataset(input_file_fullpath)
+
+        # load clim file according to start_time + lead_time
+        number_of_lead_time = ds_in.dims["lead_time"]
+        number_of_members   = ds_in.dims["number"]
+ 
         # Make output dir
         Path(os.path.dirname(output_file)).mkdir(parents=True, exist_ok=True)
+     
+        ds_ARobj = [] 
+        for l in range(number_of_lead_time):
+            for m in range(number_of_members):
 
-        # Load anom
-        ds_full = xr.open_dataset(AR_full_file)
-        ds_clim = xr.open_dataset(AR_clim_file)
-        
-        old_lon = ds_full.coords["lon"].to_numpy()
+                clim_dt = job_detail['start_time'] + pd.Timedelta(days=1) * l
+                
+                AR_clim_file = os.path.join(
+                    args.input_clim_dir,
+                    "{file_prefix:s}{time_str:s}.nc".format(
+                        file_prefix = input_clim_file_prefix,
+                        time_str = clim_dt.strftime("%m-%d_%H"),
+                    )
+                )
 
-        # find the lon = args.leftmost_lon
-        lon_first_zero = np.argmax(ds_full.coords["lon"].to_numpy() >= args.leftmost_lon)
+                number_da = xr.DataArray(
+                    data=[m,],
+                    dims=["number"],
+                )
+                
+                lead_time_da = xr.DataArray(
+                    data=[24*(l+1),],
+                    dims=["lead_time"],
+                    attrs=dict(units="hours")
+                )
 
-        ds_full = ds_full.roll(lon=-lon_first_zero, roll_coords=True)
-        ds_clim = ds_clim.roll(lon=-lon_first_zero, roll_coords=True)
-        
-        lat = ds_full.coords["lat"].to_numpy() 
-        lon = old_lon  % 360
-      
-        # For some reason we need to reassign it otherwise the contourf will be broken... why??? 
-        ds_full = ds_full.assign_coords(lon=lon) 
-        ds_clim = ds_clim.assign_coords(lon=lon) 
-        
-        IVT_x = ds_full.IVT_x[0, :, :].to_numpy()
-        IVT_y = ds_full.IVT_y[0, :, :].to_numpy()
-        IVT = np.sqrt(IVT_x**2 + IVT_y**2)
-        IVT_clim = ds_clim.IVT[0, :, :].to_numpy()
+                # Drop time dimension so that substraction can be brocasted
+                ds_full = ds_in.isel(start_time=0, lead_time=l, number=m)
+                ds_clim = xr.open_dataset(AR_clim_file).isel(time=0)
 
-        # This is in degrees
-        llat, llon = np.meshgrid(lat, lon, indexing='ij')
+                _tmp = detectAR(ds_full, ds_clim, args.method)
+                _tmp = _tmp.expand_dims(dim={"number": number_da}, axis=0).assign_coords(dict(number=number_da))
+                _tmp = _tmp.expand_dims(dim={"lead_time": lead_time_da}, axis=0).assign_coords(dict(lead_time=lead_time_da))
+                ds_ARobj.append(_tmp)
 
-        # dlat, dlon are in radians
-        dlat = np.zeros_like(lat)
+        ds_ARobj = xr.merge(ds_ARobj)
 
-        _tmp = np.deg2rad(lat[:-1] - lat[1:]) # ERA5 data is werid. Latitude start at north and move southward
-        dlat[1:-1] = (_tmp[:-1] + _tmp[1:]) / 2.0
-        dlat[0] = dlat[1]
-        dlat[-1] = dlat[-2]
-
-        # ERA-interim has equally spaced lon
-        dlon = np.deg2rad(lon[1] - lon[0])
-
-        area = r_E**2 * np.cos(np.deg2rad(llat)) * dlon * dlat[:, None]
-
-
-        print("[%s] Compute AR_objets using method: %s" % (jobname, args.method))
-
-        if args.method == "ANOMLEN": 
-
-            labeled_array, AR_objs = ARdetection_Tien.detectARObjects(
-                IVT_x, IVT_y, llat, llon, area,
-                IVT_threshold=IVT_clim+250,
-                weight=IVT,
-                filter_func = ARdetection_Tien.ARFilter_ANOMLEN,
-            )
-
-        elif args.method == "ANOMLEN2":
-
-            # Remember, the IVT_clim here should refer to 85th percentile
-            # user should provide the correct information with
-            # `--AR-clim-dir` parameter
-            IVT_clim[IVT_clim < 100.0] = 100.0
- 
-            labeled_array, AR_objs = ARdetection_Tien.detectARObjects(
-                IVT_x, IVT_y, llat, llon, area,
-                IVT_threshold=IVT_clim, # Remember, the IVT_clim here should refer to 85th percentile
-                weight=IVT,
-                filter_func = ARdetection_Tien.ARFilter_ANOMLEN2,
-            )
-
-
-        elif args.method == "ANOMLEN3": 
-
-            # Remember, the IVT_clim here should refer to 85th percentile
-            # user should provide the correct information with
-            # `--AR-clim-dir` parameter
-            IVT_clim[IVT_clim < 100.0] = 100.0
- 
-            labeled_array, AR_objs = ARdetection_Tien.detectARObjects(
-                IVT_x, IVT_y, llat, llon, area,
-                IVT_threshold=IVT_clim, # Remember, the IVT_clim here should refer to 85th percentile
-                weight=IVT,
-                filter_func = ARdetection_Tien.ARFilter_ANOMLEN3,
-            )
-
-        elif args.method == "ANOMLEN4": 
-
-            # Remember, the IVT_clim here should refer to 85th percentile
-            # user should provide the correct information with
-            # `--AR-clim-dir` parameter
-            IVT_clim[IVT_clim < 100.0] = 100.0
- 
-            labeled_array, AR_objs = ARdetection_Tien.detectARObjects(
-                IVT_x, IVT_y, llat, llon, area,
-                IVT_threshold=IVT_clim, # Remember, the IVT_clim here should refer to 85th percentile
-                weight=IVT,
-                filter_func = ARdetection_Tien.ARFilter_ANOMLEN4,
-            )
-
-
-        else:
-            raise Exception("Unknown method: %s" % (args.method,))
-          
-        # Convert AR object array into Dataset format
-        Nobj = len(AR_objs)
-        data_output = dict(
-            feature_n    = np.zeros((Nobj,), dtype=int),
-            area         = np.zeros((Nobj,),),
-            length       = np.zeros((Nobj,),),
-            centroid_lat = np.zeros((Nobj,),),
-            centroid_lon = np.zeros((Nobj,),),
+        start_time_da = xr.DataArray(
+            data=[ int( (job_detail['start_time'] - pd.Timestamp("1970-01-01") ) / pd.Timedelta(hours=1)),],
+            dims=["start_time"],
+            attrs=dict(units="hours since 1970-01-01 00:00:00")
         )
 
-        for i, AR_obj in enumerate(AR_objs):
-            data_output['feature_n'][i] = AR_obj['feature_n']
-            data_output['area'][i]      = AR_obj['area']
-            data_output['length'][i]    = AR_obj['length']
-            data_output['centroid_lat'][i] = AR_obj['centroid'][0]
-            data_output['centroid_lon'][i] = AR_obj['centroid'][1]
-         
-        # Make Dataset
-        ds_out = xr.Dataset(
+        ds_ARobj = ds_ARobj.expand_dims(dim={"start_time": start_time_da}, axis=0).assign_coords(dict(start_time=start_time_da))
 
-            data_vars=dict(
-                map          = (["time", "lat", "lon"], np.reshape(labeled_array, (1, *labeled_array.shape))),
-                feature_n    = (["ARobj", ], data_output["feature_n"]),
-                length       = (["ARobj", ], data_output["length"]),
-                area         = (["ARobj", ], data_output["area"]),
-                centroid_lat = (["ARobj", ], data_output["centroid_lat"]),
-                centroid_lon = (["ARobj", ], data_output["centroid_lon"]),
-            ),
 
-            coords=dict(
-                lon=(["lon"], old_lon, dict(units="degrees_east")),
-                lat=(["lat"], lat, dict(units="degrees_north")),
-                time=(["time"], [dt,]),
-            ),
+        print(ds_ARobj)
 
-            attrs=dict(description="AR objects file."),
-        )
-
-        ds_out = ds_out.roll(lon=lon_first_zero, roll_coords=False)
-      
-        ds_out.to_netcdf(
-            output_file,
+        print("Writing to file: %s" % (output_file_fullpath,) )
+        ds_ARobj.to_netcdf(
+            output_file_fullpath,
             unlimited_dims=["time",],
-            encoding={'time': {'dtype': 'i4'}},
         )
 
         result['status'] = 'OK'
+
     except Exception as e:
 
-        print("[%s] Error. Now print stacktrace..." % (jobname,))
+        print("[%s] Error. Now print stacktrace..." % (start_time_str,))
         import traceback
         traceback.print_exc()
 
@@ -217,46 +294,64 @@ def doJob(dt, detect_phase=False):
     return result
 
 
-dts = pd.date_range(beg_time_str, end_time_str, freq="D", inclusive="both")
+
 failed_dates = []
+dts_in_year = pd.date_range("2021-01-01", "2021-12-31", inclusive="both")
+##dts_in_year = pd.date_range("2021-01-31", "2021-01-31", inclusive="both")
 input_args = []
-
-for dt in dts:
-    y = dt.year
-    m = dt.month
-    d = dt.day
-    time_str = dt.strftime("%Y-%m-%d")
-
-    if ifSkip(dt):
-        print("Skip the date: %s" % (time_str,))
-        continue
-
-    result = doJob(dt, detect_phase=True)
+for model_version in model_versions:
     
-    if result['status'] != 'OK':
-        print("[detect] Failed to detect date %s " % (str(dt),))
+    print("[MODEL VERSION]: ", model_version)
     
-    if result['need_work'] is False:
-        print("[detect] Files all exist for date = %s." % (time_str,))
-    else:
-        input_args.append((dt, ))
-    
+    for dt in dts_in_year:
+        
+        model_version_date = ECCC_tools.modelVersionReforecastDateToModelVersionDate(model_version, dt)
+        
+        if model_version_date is None:
+            continue
+        
+        print("The date %s exists on ECMWF database. " % (dt.strftime("%m/%d")))
+
+        for year in range(year_rng[0], year_rng[1]+1):
+            
+            month = dt.month
+            day = dt.day
+            start_time = pd.Timestamp(year=year, month=month, day=day)
+
+            print("[Detect] Checking date %s" % (start_time.strftime("%Y-%m-%d"),))
+
+            job_detail = dict(
+                model_version = model_version,
+                start_time = start_time, 
+            )
+
+
+            result = doJob(job_detail, detect_phase=True)
+
+            if not result['need_work']:
+                print("File `%s` already exist. Skip it." % (result['output_file_fullpath'],))
+                continue
+            
+            input_args.append((job_detail, False))
+                
+               
+
+
 with Pool(processes=args.nproc) as pool:
 
     results = pool.starmap(doJob, input_args)
 
     for i, result in enumerate(results):
         if result['status'] != 'OK':
-            print('!!! Failed to generate output of date %s.' % (result['dt'].strftime("%Y-%m-%d_%H"), ))
-
-            failed_dates.append(result['dt'])
+            print('!!! Failed to generate output file %s.' % (",".join(result['output_file_fullpath'],)))
+            failed_dates.append(result['job_detail'])
 
 
 print("Tasks finished.")
 
-print("Failed dates: ")
-for i, failed_date in enumerate(failed_dates):
-    print("%d : %s" % (i+1, failed_date.strftime("%Y-%m-%d"),))
-
+print("Failed output files: ")
+for i, failed_detail in enumerate(failed_dates):
+    print("%d : %s" % (i+1, str(failed_detail['job_detail']),))
 
 print("Done.")
+

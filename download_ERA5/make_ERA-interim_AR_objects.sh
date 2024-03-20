@@ -6,7 +6,7 @@ year_end=2018
 
 
 
-for method in ANOMLEN ANOMLEN2 ANOMLEN3 ANOMLEN4; do
+for method in HMGFSC24; do
 
     output_dir=data/ERAinterim/ARObjects/${method}
 
@@ -20,6 +20,8 @@ for method in ANOMLEN ANOMLEN2 ANOMLEN3 ANOMLEN4; do
     elif [ "$method" = "ANOMLEN3" ]; then
         clim_dir_suffix=q85
     elif [ "$method" = "ANOMLEN4" ]; then
+        clim_dir_suffix=q85
+    elif [ "$method" = "HMGFSC24" ]; then
         clim_dir_suffix=q85
     else
         echo "Error: unknown method: `$method`"

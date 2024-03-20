@@ -2,7 +2,6 @@ import numpy as np
 import xarray as xr
 from scipy.ndimage import label, generate_binary_structure
 from scipy import spatial
-from earth_constants import r_E as r_earth
 
 def latlon2xyz(lat, lon, r=1.0):
     
