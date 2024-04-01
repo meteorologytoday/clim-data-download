@@ -10,7 +10,7 @@ import os
 
 archive_root = "ECCC_data/data20"
 
-nproc = 4
+nproc = 30
 
 # inclusive
 year_rng = [1998, 2017]
@@ -152,7 +152,7 @@ def doJob(job_detail, detect_phase=False):
 
 
 failed_dates = []
-dts_in_year = pd.date_range("2021-01-31", "2021-12-31", inclusive="both")
+dts_in_year = pd.date_range("2021-01-01", "2021-12-31", inclusive="both")
 input_args = []
 for model_version in ["GEPS5", "GEPS6"]:
     

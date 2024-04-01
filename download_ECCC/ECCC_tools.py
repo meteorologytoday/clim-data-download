@@ -1,7 +1,7 @@
 import pandas as pd
 import xarray as xr
 import os
-
+import numpy as np
 
 
 archive_root="./ECCC_data/data20"
@@ -89,17 +89,20 @@ def modelVersionReforecastDateToModelVersionDate(model_version, reforecast_date)
 
 def open_dataset(rawpost, varset, model_version, start_time):
    
-
-
-
     if rawpost == "postprocessed":
         
         start_time_str = start_time.strftime("%Y_%m-%d")
-          
-        loading_filename = "{save_dir:s}/ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{start_time:s}.nc".format(
+ 
+        save_dir = os.path.join(
+            archive_root,
+            rawpost,
+            model_version,
+            varset,
+        )
+      
+        loading_filename = "{save_dir:s}/ECCC-S2S_{model_version:s}_{varset:s}_{start_time:s}.nc".format(
             save_dir = save_dir,
             model_version = model_version,
-            ens_type = ens_type,
             varset = varset,
             start_time = start_time_str,
         )
@@ -132,7 +135,7 @@ def open_dataset(rawpost, varset, model_version, start_time):
 
 
             ds = xr.open_dataset(loading_filename)
-            ds = ds.rename_dims(time="lead_time").rename_vars(time="lead_time").expand_dims(dim={'start_time': [start_time,]}) 
+            #ds = ds.rename_dims(time="lead_time").rename_vars(time="lead_time").expand_dims(dim={'start_time': [start_time,]}) 
 
             #print(ds)
             if ens_type == "ctl":
@@ -152,6 +155,11 @@ def open_dataset(rawpost, varset, model_version, start_time):
 
         raise Exception("Unknown rawpost value. Only accept: `raw` and `postprocessed`.")
 
+    # Finally flip latitude
+    lat = ds.coords["latitude"]
+    if np.all( (lat[1:] - lat[:-1]) < 0 ):
+        print("Flip latitude so that it is monotonically increasing")
+        ds = ds.isel(latitude=slice(None, None, -1))
 
     return ds
 

@@ -38,7 +38,7 @@ for method in HMGFSC24; do
         --input-clim-dir         $input_clim_dir \
         --input-clim-file-prefix "ERAInterim-clim-daily_" \
         --method $method \
-        --nproc 5 & 
+        --nproc 1 & 
 
 done
 

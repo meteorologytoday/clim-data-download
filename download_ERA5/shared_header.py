@@ -33,7 +33,7 @@ def ifSkip(dt):
 #end_time = datetime.datetime(2017,    5, 1)
 
 # This is for ECCC s2s project
-beg_time = datetime.datetime(1997,   12,  1)
+beg_time = datetime.datetime(1997,    1,  1)
 end_time = datetime.datetime(2018,    2, 1)
 
 

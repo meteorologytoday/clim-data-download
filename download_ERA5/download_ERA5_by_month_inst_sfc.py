@@ -8,12 +8,11 @@ import cdsapi
 import numpy as np
 import pandas as pd
 import xarray as xr
-import shutil
 
 c = cdsapi.Client()
 
 
-dataset_name = "ERA5"
+dataset_name = "ERA5_global"
 
 def ifSkip(dt):
 
@@ -23,46 +22,28 @@ def ifSkip(dt):
 
     return skip
 
-nproc = 5
-
+nproc = 4
 
 # ERA5 data is output in hourly fashion.
-# We choose to download every 6hr
-dhr_download = 6
-download_time = [ "%02d:00" % (i*dhr_download) for i in range(int(24/dhr_download)) ] 
+hrs = [ 0, ] 
 
-
-# Each dhrs specify the averaged time after downloading data
-# Example: dhrs = [ 3, 24, ] 
-dhrs = [ 24,] 
-
-for dhr in dhrs:
-    if 24 % dhr != 0:
-        raise Exception("Not cool. 24 / dhr (dhr = %d) is not an integer." % (dhr, ) )
 
 varnames = [
 #    'geopotential',
-    'u_component_of_wind',
-    'v_component_of_wind',
-    'specific_humidity',
-
-    '10m_u_component_of_wind',
-    '10m_v_component_of_wind',
+#    '10m_u_component_of_wind',
+#    '10m_v_component_of_wind',
     'mean_sea_level_pressure',
 #    '2m_temperature',
+#    'sea_surface_temperature',
 #    'surface_sensible_heat_flux',
 #    'surface_latent_heat_flux',
 #    'surface_net_solar_radiation',
 #    'surface_net_thermal_radiation',
-
-    'sea_surface_temperature'
-
-    'mean_surface_latent_heat_flux',
-    'mean_surface_sensible_heat_flux',
-    'mean_surface_net_solar_radiation',
-    'mean_surface_net_thermal_radiation',
+#    'specific_humidity',
+#    'sea_surface_temperature',
+#    '10m_u_component_of_wind', 
+#    '10m_v_component_of_wind', 
 ]
-
 
 mapping_longname_shortname = {
     '10m_u_component_of_wind'       : 'u10',
@@ -75,17 +56,12 @@ mapping_longname_shortname = {
     'surface_net_thermal_radiation' : 'str',
     'surface_net_solar_radiation'   : 'ssr',
     'specific_humidity'             : 'q',
-    'u_component_of_wind'           : 'u',
-    'v_component_of_wind'           : 'v',
 }
 
 var_type = dict(
     
     pressure = [
-        'geopotential',
-        'u_component_of_wind',
-        'v_component_of_wind',
-        'specific_humidity',
+        'geopotential', 
     ],
     
     surface  = [
@@ -98,12 +74,12 @@ var_type = dict(
         'surface_latent_heat_flux',
         'surface_net_solar_radiation',
         'surface_net_thermal_radiation',
+        'specific_humidity',
     ],
 
 )
 
 
-# This is the old version
 area = [
     90, -180, -90, 180,
 ]
@@ -125,12 +101,9 @@ full_pressure_levels = [
     '1000',
 ]
 
-pressure_levels = {
-    'geopotential' : ['500', '850', '925', '1000', ],
-    'v_component_of_wind' : ['200', '300', '500', '700', '850', '925', '1000'],
-    'u_component_of_wind' : ['200', '300', '500', '700', '850', '925', '1000'],
-    'specific_humidity' :       ['200', '300', '500', '700', '850', '925', '1000'],
-}
+pressure_levels = dict(
+    geopotential = ['500', '850', '925', '1000', ],
+)
 
 
    
@@ -140,12 +113,7 @@ end_time = pd.Timestamp(year=end_time.year, month=end_time.month, day=1)
  
 download_tmp_dir = os.path.join(archive_root, dataset_name, "tmp")
 
-if os.path.isdir(download_tmp_dir):
-    print("Remove temporary directory: ", download_tmp_dir)
-    shutil.rmtree(download_tmp_dir)
-
-
-
+#print("Going to download %d days of data." % (total_days,))
 
 def doJob(t, varname, detect_phase=False):
     # phase \in ['detect', 'work']
@@ -215,7 +183,9 @@ def doJob(t, varname, detect_phase=False):
                                         'product_type': 'reanalysis',
                                         'format': 'netcdf',
                                         'area': area,
-                                        'time': download_time,
+                                        'time': [
+                                            '00:00', '06:00', '12:00', '18:00',
+                                        ],
                                         'day': days_list,
                                         'month': [
                                                 "%02d" % m,
@@ -234,7 +204,16 @@ def doJob(t, varname, detect_phase=False):
                                         'product_type': 'reanalysis',
                                         'format': 'netcdf',
                                         'area': area,
-                                        'time': download_time,
+                                        'time': [
+                                            '00:00', '01:00', '02:00',
+                                            '03:00', '04:00', '05:00',
+                                            '06:00', '07:00', '08:00',
+                                            '09:00', '10:00', '11:00',
+                                            '12:00', '13:00', '14:00',
+                                            '15:00', '16:00', '17:00',
+                                            '18:00', '19:00', '20:00',
+                                            '21:00', '22:00', '23:00',
+                                            ],
                                         'day': days_list,
                                         'month': [
                                                 "%02d" % m,
@@ -247,22 +226,20 @@ def doJob(t, varname, detect_phase=False):
 
                         print("Downloading file: %s" % ( tmp_filename_downloading, ))
                         c.retrieve(era5_dataset_name, params, tmp_filename_downloaded)
-                        #c.retrieve(era5_dataset_name, params, tmp_filename_downloading)
-                        #pleaseRun("ncks -O --mk_rec_dmn time %s %s" % (tmp_filename_downloading, tmp_filename_downloaded,))
 
                     # Open and average with xarray
                     if download_ds is None:
                         download_ds = xr.open_dataset(tmp_filename_downloaded)
 
                         
-                    sel_time = [ dt + pd.Timedelta(hours=dhr*i+j*dhr_download) for j in range(int(dhr / dhr_download)) ]
+                    sel_time = [ dt + pd.Timedelta(hours=dhr*i+j) for j in range(dhr) ]
                     print("Select time: ", sel_time)
                     shortname = mapping_longname_shortname[varname]
                     subset_da = download_ds[shortname].sel(time=sel_time).mean(dim="time", keep_attrs=True)
                     subset_da = subset_da.expand_dims(dim="time", axis=0).assign_coords(
                         {"time": [dt,]}
                     )
-                    #pleaseRun("ncra -O -d time,%d,%d %s %s" % (dhr*i, dhr*(i+1)-1, tmp_filename_downloaded, output_filename,))
+
                     subset_da.to_netcdf(output_filename, unlimited_dims="time")
                     if os.path.isfile(output_filename):
                         print("[%s] File `%s` is generated." % (time_str, output_filename,))
@@ -285,27 +262,6 @@ def doJob(t, varname, detect_phase=False):
     print("[%s] Done. " % (time_str,))
 
     return result
-
-
-
-print("Going to focus on the following variables:")
-for i, varname in enumerate(varnames):
-    print("[%02d] %s" % (i, varname))
-
-print("Going to download the following time:")
-for i, t in enumerate(download_time):
-    print("[%02d] %s" % (i, t))
-
-
-
-
-
-
-
-
-
-
-
 
 
 failed_dates = []

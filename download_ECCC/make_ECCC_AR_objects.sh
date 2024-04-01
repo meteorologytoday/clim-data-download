@@ -12,6 +12,6 @@ python3 make_ECCC_AR_objects.py \
     --input-clim-file-prefix "ERAInterim-clim-daily_" \
     --year-rng $year_beg $year_end \
     --method $method \
-    --nproc 3 
+    --nproc 5 
 
 

@@ -15,7 +15,6 @@ parser.add_argument('--input-dir', required=True, help="Input directory.", type=
 parser.add_argument('--output-dir', required=True, help="Output directory.", type=str)
 parser.add_argument('--input-filename-prefix', required=True, help="The prefix of filename.", type=str)
 parser.add_argument('--output-filename-prefix', help="The prefix of filename.", type=str, default="climatology_monthly-")
-parser.add_argument('--method', required=True, help="The prefix of filename.", type=str, choices=["q85", "mean"])
 parser.add_argument('--year-beg', required=True, help="The begin year.", type=int)
 parser.add_argument('--year-end', required=True, help="The end year.", type=int)
 parser.add_argument('--mavg-days', help="Moving average days, can only be an odd number.", type=int, default="15")
@@ -90,27 +89,31 @@ def work(dt, detect_phase=False):
                     load_files.append(filename)
             
             print("[%s] Loading %d files..." % (mmddhh_str, len(load_files),))
-            ds = xr.open_mfdataset(load_files)
+
+            dss = []
+            for fname in load_files:
+                dss.append(xr.open_dataset(fname)["map"])
+
+            ds = xr.merge(dss)
+            ds = ds.rename(dict(lat="latitude", lon="longitude"))
+            #ds = xr.open_mfdataset(load_files, data_vars=["map"], coords=["time", "latitude", "longitude"])
             ds = ds.chunk({"time": -1, "latitude": "auto", "longitude": "auto"})
             ds_map = ds["map"]
-            ds_occurence = xr.where(ds_map > 0, 1, 0).rename("occurence")
-            print(ds_occurence)
-
-                
-            ds_occurence = ds_occurence.mean(keep_attrs=True, skipna=False, dim="time").expand_dims(
+            ds_ARoccur = xr.where(ds_map > 0, 1, 0).rename("ARoccur")
+            ds_ARoccur = ds_ARoccur.mean(keep_attrs=True, skipna=False, dim="time").expand_dims(
                 dim={"time": [dt,]},
                 axis=0,
             )
            
              
             print("[%s] Outputting file: %s" % (mmddhh_str, output_filename,))
-            ds_occurence.to_netcdf(
+            ds_ARoccur.to_netcdf(
                 output_filename,
                 unlimited_dims="time",
             )
 
-        ds.close()
-        ds_new.close()
+            ds_ARoccur.close()
+            ds.close()
         
         result["status"] = "OK"
 

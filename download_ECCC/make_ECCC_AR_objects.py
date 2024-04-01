@@ -297,7 +297,7 @@ def doJob(job_detail, detect_phase=False):
 
 failed_dates = []
 dts_in_year = pd.date_range("2021-01-01", "2021-12-31", inclusive="both")
-##dts_in_year = pd.date_range("2021-01-31", "2021-01-31", inclusive="both")
+#dts_in_year = pd.date_range("2021-01-03", "2021-01-03", inclusive="both")
 input_args = []
 for model_version in model_versions:
     
@@ -343,7 +343,8 @@ with Pool(processes=args.nproc) as pool:
 
     for i, result in enumerate(results):
         if result['status'] != 'OK':
-            print('!!! Failed to generate output file %s.' % (",".join(result['output_file_fullpath'],)))
+            #print('!!! Failed to generate output file %s.' % (",".join(result['output_file_fullpath'],)))
+            print('!!! Failed to generate output file %s.' % (result['output_file_fullpath'],))
             failed_dates.append(result['job_detail'])
 
 
@@ -351,7 +352,7 @@ print("Tasks finished.")
 
 print("Failed output files: ")
 for i, failed_detail in enumerate(failed_dates):
-    print("%d : %s" % (i+1, str(failed_detail['job_detail']),))
+    print("%d : " % (i+1), failed_detail)
 
 print("Done.")
 
