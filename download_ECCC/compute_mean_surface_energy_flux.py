@@ -19,57 +19,12 @@ model_versions = ['GEPS5', "GEPS6"]
 
 g0 = 9.81
 
-def computeARvariables(ds):
-   
-    ds = ds.where((ds.coords["level"] <= 1000) & (ds.coords["level"] >=200), drop=True)
- 
-    lev = ds.coords["level"].to_numpy()
-    print(lev)
-    _lev_weight = np.zeros((len(lev),))
-    dlev = lev[1:] - lev[:-1]
-    _lev_weight[1:-1] = (dlev[1:] + dlev[:-1]) / 2
-    _lev_weight[0]    = dlev[0]  / 2
-    _lev_weight[-1]   = dlev[-1] / 2
-    _lev_weight *= 100.0 / g0  # convert into density
-    
-
-    if np.any(_lev_weight <= 0):
-        raise Exception("Bad lev_weight: %s " % (str(_lev_weight),))
-
-    lev_weight = xr.DataArray(
-        data=_lev_weight,
-        dims=["level",],
-        coords=dict(
-            level=ds.coords["level"],
-        ),
-    )
-
-    print(lev_weight)
-
-    IWV   = ds["q"].weighted(lev_weight).sum(dim="level")
-    IVT_x = (ds["q"] * ds["u"]).weighted(lev_weight).sum(dim="level")
-    IVT_y = (ds["q"] * ds["v"]).weighted(lev_weight).sum(dim="level")
-    IVT   = (IVT_x**2 + IVT_y**2)**0.5
-    IWVKE = (ds["q"] * (ds["u"]**2.0 + ds["v"]**2.0)).weighted(lev_weight).sum(dim="level")
-    
-    IWV   = IWV.rename("IWV")
-    IVT_x = IVT_x.rename("IVT_x")
-    IVT_y = IVT_y.rename("IVT_y")
-    IVT   = IVT.rename("IVT")
-    IWVKE = IWVKE.rename("IWVKE")
-
-    ds_AR = xr.merge([IWV, IVT_x, IVT_y, IVT, IWVKE])
-
-    return ds_AR 
-    
-
-
 def doJob(job_detail, detect_phase=False):
 
     # phase \in ['detect', 'work']
     result = dict(job_detail=job_detail, status="UNKNOWN", need_work=False, detect_phase=detect_phase, output_file_fullpath=None)
 
-    output_varset = "AR"
+    output_varset = "surf_hf_avg"
     try:
 
 
@@ -115,21 +70,28 @@ def doJob(job_detail, detect_phase=False):
         if file_exists:
             print("[%s] Output file `%s` already exists. Skip." % (start_time_str, output_file_fullpath))
         else:
-            # First, load UVTZ and Q
+
+            ds_acc_vars = ECCC_tools.open_dataset("raw", "surf_inst", job_detail['model_version'], job_detail['start_time'])
+            convert_varnames = ["sshf", "slhf", "ssr", "ssrd", "str", "strd", "ttr",]
+           
+
+            new_lead_time = ds_acc_vars.coords["lead_time"].to_numpy() - pd.Timedelta(hours=12)
+ 
+            new_vars = []
+            for _varname in convert_varnames:
+                
+                # Notice that these variables are accumulative    
+                _da = ds_acc_vars[_varname]
+                _da = (_da.shift(lead_time=1, fill_value=0) - _da) / 86400.0
+                _da = _da.rename("m%s" % _varname)
 
 
-            ds_UVTZ = ECCC_tools.open_dataset("raw", "UVTZ", job_detail['model_version'], job_detail['start_time'])
-            ds_Q    = ECCC_tools.open_dataset("raw", "Q",    job_detail['model_version'], job_detail['start_time'])
+                new_vars.append(_da)
 
-            #print(ds_Q.coords["level"])
-            ds_UVTZ = ds_UVTZ.sel(level=ds_Q.coords["level"])
-            
-            ds_QUVTZ = xr.merge([ds_Q, ds_UVTZ]) 
+            ds_mean_flux = xr.merge(new_vars).assign_coords(dict(lead_time=new_lead_time))
 
-            ds_AR = computeARvariables(ds_QUVTZ)
-       
             print("[%s] Writing output file: %s" % (start_time_str, output_file_fullpath,)) 
-            ds_AR.to_netcdf(
+            ds_mean_flux.to_netcdf(
                 output_file_fullpath, unlimited_dims="time",
                 encoding={'start_time':{'units':'hours since 1970-01-01 00:00:00'}}
             )

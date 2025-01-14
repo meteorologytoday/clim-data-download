@@ -8,43 +8,51 @@ import traceback
 import numpy as np
 import pandas as pd
 import xarray as xr
-import ECCC_tools
+import ECMWF_tools
 import shutil
 
 from ecmwfapi import ECMWFDataServer
 server = ECMWFDataServer()
 
 #c = cdsapi.Client()
+model_name = "ECMWF"
+nproc = 4
+beg_year = 2004
+end_year = 2022
 
 file_exists = np.vectorize(os.path.exists)
 
-output_dir_root = os.path.join(archive_root, "data20_20240723", "raw")
+output_dir_root = os.path.join(archive_root, "data", "raw")
 download_tmp_dir = os.path.join(output_dir_root, "tmp")
 Path(download_tmp_dir).mkdir(parents=True, exist_ok=True)
 
+
+
+print("Model name: %s" % (model_name,))
+print("Number of processors: %d" % (nproc,))
+print("Output directory root: %s" % (output_dir_root,))
+print("Download years = %d ~ %d" % (beg_year, end_year,))
+
+
+
 def ifSkip(dt):
 
+    skip = False
+    #if dt.month != 9:
+    #    skip = True
 
-    if dt.month != 9:
-        skip = True
-
-    else:
-        skip = False
+    #else:
+    #    skip = False
 
     return skip
 
-nproc = 3
 
 
-# There are 4 requests to completely download the data in 
+
+# There is in total 1 request to completely download the data in 
 # a given time. It is
 #
-#  1. UVTZ
-#  2. Q
-#  3. W
-#  4. 19 surface layers (inst)
-#  5. 9  surface layers (avg)
-#  6. 9 2D ocean variables
+#  1. 1  surface layers (surf_avg) : SST
 
 
 def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
@@ -55,7 +63,7 @@ def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
         "class": "s2",
         "expver": "prod",
         "model": "glob",
-        "origin": "cwao",
+        "origin": "ecmf",
         "stream": "enfh",
         "time": "00:00:00",
         "target": "output"
@@ -66,6 +74,8 @@ def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
     #print([ start_dt.strftime("%Y-%m-%d") for start_dt in starttime_dts ])
 
     req["hdate"] = "/".join([ start_dt.strftime("%Y-%m-%d") for start_dt in starttime_dts ])
+    
+    # Example:
     #"date": "2019-09-12",
     #"hdate": "1998-09-12/1999-09-12/2000-09-12/2001-09-12",
     
@@ -73,11 +83,12 @@ def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
     if ens_type == "ctl":
         
         req["type"] = "cf"
+        req["number"] = "1"
 
     elif ens_type == "pert":
         
         req["type"] = "pf"
-        req["number"] = "1/2/3"
+        req["number"] = "/".join(["%d" % (i,) for i in range(1, 11)]) # 10 perturbations
 
     else:
         raise Exception("Unknown ens_type: %s" % (ens_type,))
@@ -85,63 +96,14 @@ def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
 
     # Add in field information
 
-    if varset == "UVTZ":
-
-        # 3D UVTZ
-        req.update({
-            "levelist": "10/50/100/200/300/500/700/850/925/1000",
-            "levtype": "pl",
-            "param": "130/131/132/156",
-            "step": "24/48/72/96/120/144/168/192/216/240/264/288/312/336/360/384/408/432/456/480/504/528/552/576/600/624/648/672/696/720/744/768",
-        })
-
-    elif varset == "W":
-        
-        # 3D W
-        req.update({
-            "levelist": "500",
-            "levtype": "pl",
-            "param": "135",
-            "step": "24/48/72/96/120/144/168/192/216/240/264/288/312/336/360/384/408/432/456/480/504/528/552/576/600/624/648/672/696/720/744/768",
-        })
-
-    elif varset == "Q":
-        
-        # 3D Q
-        req.update({
-            "levelist": "200/300/500/700/850/925/1000",
-            "levtype": "pl",
-            "param": "133",
-            "step": "24/48/72/96/120/144/168/192/216/240/264/288/312/336/360/384/408/432/456/480/504/528/552/576/600/624/648/672/696/720/744/768",
-        })
-
-    elif varset == "surf_inst":
-        
-        # Surface inst (exclude: land-sea mask, orography, min/max 2m temp in the last 6hrs)
-        req.update({
-            "levtype": "sfc",
-            "param": "134/146/147/151/165/166/169/175/176/177/179/174008/228143/228144/228228",
-            "step": "24/48/72/96/120/144/168/192/216/240/264/288/312/336/360/384/408/432/456/480/504/528/552/576/600/624/648/672/696/720/744/768",
-        })
-    
-    elif varset == "surf_avg":
+    if varset == "surf_avg":
         
         # Surface avg
         req.update({
             "levtype": "sfc",
-            "param": "31/33/34/136/167/168/228032/228141/228164",
-            "step": "0-24/24-48/48-72/72-96/96-120/120-144/144-168/168-192/192-216/216-240/240-264/264-288/288-312/312-336/336-360/360-384/384-408/408-432/432-456/456-480/480-504/504-528/528-552/552-576/576-600/600-624/624-648/648-672/672-696/696-720/720-744/744-768",
+            "param": "34",
+            "step": "0-24/24-48/48-72/72-96/96-120/120-144/144-168/168-192/192-216/216-240/240-264/264-288/288-312/312-336/336-360/360-384/384-408/408-432/432-456/456-480/480-504/504-528/528-552/552-576/576-600/600-624/624-648/648-672/672-696/696-720/720-744/744-768/768-792/792-816/816-840/840-864/864-888/888-912/912-936/936-960/960-984/984-1008/1008-1032/1032-1056/1056-1080/1080-1104",
         })
-
-    elif varset == "ocn2d_avg":
-
-        # 2D ocean   
-        req.update({
-            "levtype": "o2d",
-            "param": "151126/151131/151132/151145/151163/151175/151219/151225/174098",
-            "step": "0-24/24-48/48-72/72-96/96-120/120-144/144-168/168-192/192-216/216-240/240-264/264-288/288-312/312-336/336-360/360-384/384-408/408-432/432-456/456-480/480-504/504-528/528-552/552-576/576-600/600-624/624-648/648-672/672-696/696-720/720-744/744-768",
-        })
-
 
     return req
 
@@ -153,7 +115,7 @@ def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
 beg_time = pd.Timestamp(year=beg_time.year, month=beg_time.month, day=1)
 end_time = pd.Timestamp(year=end_time.year, month=end_time.month, day=1)
 
-number_of_leadtime = 32 
+number_of_leadtime = 46 
 
 def doJob(req, varset, starttime_md, year_group, output_file_group, output_separate_files):
 
@@ -284,11 +246,11 @@ def doJob(req, varset, starttime_md, year_group, output_file_group, output_separ
 failed_output_files = []
 
 # Loop through a year
-beg_year = 1998
-end_year = 2017
 years = np.arange(beg_year, end_year+1)
 download_group_size_by_year = 20
-dts_in_year = pd.date_range("2001-01-01", "2001-12-31", freq="D", inclusive="both")
+dts_in_year = pd.date_range("2000-01-01", "2000-12-31", freq="D", inclusive="both")
+shuffled_idx = np.random.permutation(np.arange(len(dts_in_year)))
+
 
 year_groups = [
     years[download_group_size_by_year*i:download_group_size_by_year*(i+1)]
@@ -303,18 +265,19 @@ for i, year_group in enumerate(year_groups):
 
 input_args = []
 #for model_version in ["GEPS5", "GEPS6"]:
-for model_version in ["GEPS5",]:# "GEPS6"]:
+for model_version in ["CY48R1",]:# "GEPS6"]:
 
     print("[MODEL VERSION]: ", model_version)
 
-    for dt in dts_in_year:
-
+    for idx in shuffled_idx:
+        
+        dt = dts_in_year[idx]
 
         if ifSkip(dt):
             print("Skip this date: ", dt)
             continue
     
-        model_version_date = ECCC_tools.modelVersionReforecastDateToModelVersionDate(model_version, dt)
+        model_version_date = ECMWF_tools.modelVersionReforecastDateToModelVersionDate(model_version, dt)
 
         if model_version_date is None:
             
@@ -337,23 +300,11 @@ for model_version in ["GEPS5",]:# "GEPS6"]:
                 raise Exception("Weird. Check.")
             
             
+            #for ens_type in ["ctl", ]:
             for ens_type in ["ctl", "pert"]:
 
-                for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
-                #for varset in ["UVTZ", "Q", "surf_inst"]:
-                #for varset in ["W",]:
-                    
-                    if varset == "ocn2d_avg":
-
-                        # GEPS5 is persistent SST run. There is no ocean model.
-                        if model_version == "GEPS5":
-                            continue
-
-                        # According to Dr. Hai Lin, 
-                        # ECCC started providing ocean data after 2020-02-06.
-                        # Therefore, there is no ocean data prior to that date.
-                        if model_version_date < pd.Timestamp("2020-02-06"):
-                            continue
+                #for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
+                for varset in ["surf_avg",]:
                     
                     output_dir = os.path.join(
                         output_dir_root,
@@ -364,7 +315,8 @@ for model_version in ["GEPS5",]:# "GEPS6"]:
                     
                     Path(output_dir).mkdir(parents=True, exist_ok=True)
                             
-                    output_file_group = "ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{year_group_str:s}_{start_time:s}.nc".format(
+                    output_file_group = "{model_name:s}-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{year_group_str:s}_{start_time:s}.nc".format(
+                            model_name = model_name,
                             model_version = model_version,
                             ens_type = ens_type,
                             varset = varset,
@@ -373,7 +325,8 @@ for model_version in ["GEPS5",]:# "GEPS6"]:
                     )
 
                     output_separate_files = [                    
-                        "{save_dir:s}/ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{year:04d}_{start_time:s}.nc".format(
+                        "{save_dir:s}/{model_name:s}-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{year:04d}_{start_time:s}.nc".format(
+                            model_name = model_name,
                             save_dir = output_dir, 
                             model_version = model_version,
                             ens_type = ens_type,
@@ -400,7 +353,7 @@ for model_version in ["GEPS5",]:# "GEPS6"]:
                     
                    
 
-
+failed_dates=[]
 with Pool(processes=nproc) as pool:
 
     results = pool.starmap(doJob, input_args)
@@ -408,7 +361,7 @@ with Pool(processes=nproc) as pool:
     for i, result in enumerate(results):
         if result['status'] != 'OK':
             print('!!! Failed to generate output file %s.' % (",".join(result['output_files'],)))
-            failed_dates.append(result['output_file_full'])
+            failed_dates.append(result['output_files'])
 
 
 print("Tasks finished.")

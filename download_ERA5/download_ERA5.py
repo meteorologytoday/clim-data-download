@@ -16,8 +16,8 @@ dataset_name = "ERA5_global"
 def ifSkip(dt):
 
     skip = False
-    if not ( dt.month in [11, 12, 1, 2] ):
-        skip = True
+#    if not ( dt.month in [11, 12, 1, 2] ):
+#        skip = True
 
     return skip
 
@@ -33,8 +33,9 @@ for dhr in dhrs:
 
 varnames = [
 #    'geopotential', 
-    'mean_sea_level_pressure',
-#    'sea_surface_temperature',
+#    'mean_sea_level_pressure',
+    'sea_surface_temperature',
+
 #    '10m_u_component_of_wind', 
 #    '10m_v_component_of_wind', 
 ]

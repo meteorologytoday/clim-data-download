@@ -13,20 +13,20 @@ import shutil
 c = cdsapi.Client()
 
 
-dataset_name = "ERA5"
+dataset_name = "ERA5_SST_verification"
 
 def ifSkip(dt):
 
     skip = False
-    if not ( dt.month in [10, 11, 12, 1, 2, 3, 4] ):
-        skip = True
+#    if not ( dt.month in [10, 11, 12, 1, 2, 3, 4] ):
+#        skip = True
 
     return skip
 
-nproc = 5
+nproc = 4
 
 
-# ERA5 data is output in hourly fashion.
+#ERA5 data is output in hourly fashion.
 # We choose to download every 6hr
 dhr_download = 6
 download_time = [ "%02d:00" % (i*dhr_download) for i in range(int(24/dhr_download)) ] 
@@ -42,13 +42,13 @@ for dhr in dhrs:
 
 varnames = [
 #    'geopotential',
-    'u_component_of_wind',
-    'v_component_of_wind',
-    'specific_humidity',
+#    'u_component_of_wind',
+#    'v_component_of_wind',
+#    'specific_humidity',
 
-    '10m_u_component_of_wind',
-    '10m_v_component_of_wind',
-    'mean_sea_level_pressure',
+#    '10m_u_component_of_wind',
+#    '10m_v_component_of_wind',
+#    'mean_sea_level_pressure',
 #    '2m_temperature',
 #    'surface_sensible_heat_flux',
 #    'surface_latent_heat_flux',
@@ -57,10 +57,10 @@ varnames = [
 
     'sea_surface_temperature'
 
-    'mean_surface_latent_heat_flux',
-    'mean_surface_sensible_heat_flux',
-    'mean_surface_net_solar_radiation',
-    'mean_surface_net_thermal_radiation',
+#    'mean_surface_latent_heat_flux',
+#    'mean_surface_sensible_heat_flux',
+#    'mean_surface_net_solar_radiation',
+#    'mean_surface_net_thermal_radiation',
 ]
 
 
@@ -134,8 +134,8 @@ pressure_levels = {
 
 
    
-beg_time = pd.Timestamp(year=beg_time.year, month=beg_time.month, day=1)
-end_time = pd.Timestamp(year=end_time.year, month=end_time.month, day=1)
+beg_time = pd.Timestamp(year=beg_time.year, month=beg_time.month, day=beg_time.day)
+end_time = pd.Timestamp(year=end_time.year, month=end_time.month, day=end_time.day)
 
  
 download_tmp_dir = os.path.join(archive_root, dataset_name, "tmp")
@@ -149,7 +149,7 @@ if os.path.isdir(download_tmp_dir):
 
 def doJob(t, varname, detect_phase=False):
     # phase \in ['detect', 'work']
-    result = dict(time=t, varname=varname, status="UNKNOWN", need_work=False, detect_phase=detect_phase)
+    result = dict(dt=t, varname=varname, status="UNKNOWN", need_work=False, detect_phase=detect_phase)
 
     try:
         y = t.year
@@ -167,6 +167,7 @@ def doJob(t, varname, detect_phase=False):
 
 
         download_ds = None
+        need_work = False 
         # Detecting
         for dt in pd.date_range(month_beg, month_end, freq="D", inclusive="left"):
 
@@ -192,9 +193,10 @@ def doJob(t, varname, detect_phase=False):
                     # distribution. I use variable `phase` to label
                     # this stage.
                     if detect_phase is True:
-                        result['need_work'] = not os.path.isfile(output_filename)
-                        result['status'] = 'OK' 
-                        return result
+                        
+                        need_work = need_work or ( not os.path.isfile(output_filename) )
+                        
+                        continue
                             
                     if os.path.isfile(output_filename):
                         print("[%s] Data already exists. Skip." % (full_time_str, ))
@@ -258,7 +260,8 @@ def doJob(t, varname, detect_phase=False):
                     sel_time = [ dt + pd.Timedelta(hours=dhr*i+j*dhr_download) for j in range(int(dhr / dhr_download)) ]
                     print("Select time: ", sel_time)
                     shortname = mapping_longname_shortname[varname]
-                    subset_da = download_ds[shortname].sel(time=sel_time).mean(dim="time", keep_attrs=True)
+
+                    subset_da = download_ds[shortname].sel(valid_time=sel_time).mean(dim="valid_time", keep_attrs=True)
                     subset_da = subset_da.expand_dims(dim="time", axis=0).assign_coords(
                         {"time": [dt,]}
                     )
@@ -268,12 +271,17 @@ def doJob(t, varname, detect_phase=False):
                         print("[%s] File `%s` is generated." % (time_str, output_filename,))
 
 
-        for remove_file in [tmp_filename_downloading,]:
-            if os.path.isfile(remove_file):
-                print("[%s] Remove file: `%s` " % (time_str, remove_file))
-                os.remove(remove_file)
+        if detect_phase is True:
+            result['need_work'] = need_work
+            result['status'] = 'OK' 
+        else:
+            for remove_file in [tmp_filename_downloading,]:
+                if os.path.isfile(remove_file):
+                    print("[%s] Remove file: `%s` " % (time_str, remove_file))
+                    os.remove(remove_file)
 
-        result['status'] = 'OK'
+            result['status'] = 'OK'
+            print("[%s] Done. " % (time_str,))
 
     except Exception as e:
 
@@ -282,7 +290,7 @@ def doJob(t, varname, detect_phase=False):
         traceback.print_exc()
         print(e)
 
-    print("[%s] Done. " % (time_str,))
+
 
     return result
 
