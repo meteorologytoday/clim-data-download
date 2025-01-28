@@ -41,9 +41,9 @@ def ifSkip(dt):
 #beg_time = datetime.datetime(2004,     1,  1)
 #end_time = datetime.datetime(2023,     2,  28)
 
-# This is for CW3E 2023 AR case
-beg_time = datetime.datetime(2023,     1,  1)
-end_time = datetime.datetime(2023,     2,  1)
+# This is for PRISM
+beg_time = datetime.datetime(1981,     1,  1)
+end_time = datetime.datetime(2015,     1,  1)
 
 
 archive_root = "data"

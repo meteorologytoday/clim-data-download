@@ -13,7 +13,7 @@ import shutil
 c = cdsapi.Client()
 
 
-dataset_name = "ERA5_SST_verification"
+dataset_name = "ERA5"
 
 def ifSkip(dt):
 
@@ -23,11 +23,14 @@ def ifSkip(dt):
 
     return skip
 
-nproc = 4
+nproc = 1
 
 
 #ERA5 data is output in hourly fashion.
 # We choose to download every 6hr
+# This variable is used like: when we download accumulative preipitation data,  we need hourly data and sum them up
+# However, for variables like SST, they are less variable, so we can do every 6 hours without being unrealistic.
+# So, in the future this dhr_download should be variable dependent.
 dhr_download = 6
 download_time = [ "%02d:00" % (i*dhr_download) for i in range(int(24/dhr_download)) ] 
 
@@ -55,12 +58,19 @@ varnames = [
 #    'surface_net_solar_radiation',
 #    'surface_net_thermal_radiation',
 
-    'sea_surface_temperature'
+    'sea_surface_temperature',
 
 #    'mean_surface_latent_heat_flux',
 #    'mean_surface_sensible_heat_flux',
 #    'mean_surface_net_solar_radiation',
 #    'mean_surface_net_thermal_radiation',
+
+#    "total_precipitation",
+#    "convective_precipitation",
+#    "convective_rain_rate",
+#    "large_scale_precipitation",
+#    "large_scale_rain_rate",
+
 ]
 
 
@@ -77,6 +87,11 @@ mapping_longname_shortname = {
     'specific_humidity'             : 'q',
     'u_component_of_wind'           : 'u',
     'v_component_of_wind'           : 'v',
+    "convective_precipitation"      : 'cp',
+    "convective_rain_rate"          : 'crr',
+    "large_scale_precipitation"     : 'lsp',
+    "large_scale_rain_rate"         : 'lsrr',
+    "total_precipitation"           : 'tp',
 }
 
 var_type = dict(
@@ -98,8 +113,12 @@ var_type = dict(
         'surface_latent_heat_flux',
         'surface_net_solar_radiation',
         'surface_net_thermal_radiation',
+        "convective_precipitation",
+        "convective_rain_rate",
+        "large_scale_precipitation",
+        "large_scale_rain_rate",
+        "total_precipitation",
     ],
-
 )
 
 
@@ -146,7 +165,7 @@ if os.path.isdir(download_tmp_dir):
 
 
 
-
+#
 def doJob(t, varname, detect_phase=False):
     # phase \in ['detect', 'work']
     result = dict(dt=t, varname=varname, status="UNKNOWN", need_work=False, detect_phase=detect_phase)
@@ -261,7 +280,17 @@ def doJob(t, varname, detect_phase=False):
                     print("Select time: ", sel_time)
                     shortname = mapping_longname_shortname[varname]
 
-                    subset_da = download_ds[shortname].sel(valid_time=sel_time).mean(dim="valid_time", keep_attrs=True)
+                    subset_da = download_ds[shortname].sel(valid_time=sel_time)
+
+                    if varname in [
+                        "total_precipitation",
+                        "convective_precipitation",
+                        "large_scale_precipitation",
+                    ]:
+                        subset_da = subset_da.sum(dim="valid_time", keep_attrs=True)
+                    else:
+                        subset_da = subset_da.mean(dim="valid_time", keep_attrs=True)
+
                     subset_da = subset_da.expand_dims(dim="time", axis=0).assign_coords(
                         {"time": [dt,]}
                     )
