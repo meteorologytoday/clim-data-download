@@ -4,7 +4,6 @@ import datetime
 from pathlib import Path
 import os.path
 import os
-import netCDF4
 
 def pleaseRun(cmd):
     print(">> %s" % cmd)
