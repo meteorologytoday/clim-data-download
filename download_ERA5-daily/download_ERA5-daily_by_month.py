@@ -13,7 +13,7 @@ import shutil
 c = cdsapi.Client()
 
 
-dataset_name = "ERA5"
+dataset_name = "ERA5-derived-daily"
 
 def ifSkip(dt):
 
@@ -25,23 +25,6 @@ def ifSkip(dt):
 
 nproc = 1
 
-
-#ERA5 data is output in hourly fashion.
-# We choose to download every 6hr
-# This variable is used like: when we download accumulative preipitation data,  we need hourly data and sum them up
-# However, for variables like SST, they are less variable, so we can do every 6 hours without being unrealistic.
-# So, in the future this dhr_download should be variable dependent.
-dhr_download = 6
-download_time = [ "%02d:00" % (i*dhr_download) for i in range(int(24/dhr_download)) ] 
-
-
-# Each dhrs specify the averaged time after downloading data
-# Example: dhrs = [ 3, 24, ] 
-dhrs = [ 24,] 
-
-for dhr in dhrs:
-    if 24 % dhr != 0:
-        raise Exception("Not cool. 24 / dhr (dhr = %d) is not an integer." % (dhr, ) )
 
 varnames = [
 #    'geopotential',
@@ -64,9 +47,9 @@ varnames = [
 #    'mean_surface_sensible_heat_flux',
 #    'mean_surface_net_solar_radiation',
 #    'mean_surface_net_thermal_radiation',
-
-    "total_precipitation",
     "top_net_thermal_radiation",
+    "total_precipitation",
+
 #    "convective_precipitation",
 #    "convective_rain_rate",
 #    "large_scale_precipitation",
@@ -192,115 +175,110 @@ def doJob(t, varname, detect_phase=False):
         need_work = False 
         # Detecting
         for dt in pd.date_range(month_beg, month_end, freq="D", inclusive="left"):
+            
+            download_dir = os.path.join(archive_root, dataset_name, varname)
+            if not os.path.isdir(download_dir):
+                print("Create dir: %s" % (download_dir,))
+                Path(download_dir).mkdir(parents=True, exist_ok=True)
 
-            for dhr in dhrs:
+            full_time_str = dt.strftime("%Y-%m-%d") 
+            output_filename = os.path.join(download_dir, "%s-%s-%s.nc" % (file_prefix, varname, full_time_str, ))
 
-                subcycles = int(24 / dhr)
+            # First round is just to decide which files
+            # to be processed to enhance parallel job 
+            # distribution. I use variable `phase` to label
+            # this stage.
+            if detect_phase is True:
+                
+                need_work = need_work or ( not os.path.isfile(output_filename) )
+                
+                continue
+                    
+            if os.path.isfile(output_filename):
+                print("[%s] Data already exists. Skip." % (full_time_str, ))
+                continue
+            else:
+                print("[%s] Now producing file: %s" % (full_time_str, output_filename,))
 
-                download_dir = os.path.join(archive_root, dataset_name, "%02dhr" % (dhr,), varname)
-                if not os.path.isdir(download_dir):
-                    print("Create dir: %s" % (download_dir,))
-                    Path(download_dir).mkdir(parents=True, exist_ok=True)
 
-                for i in range(subcycles):
-                   
-                    beg_hr = i * dhr 
-                    end_hr = (i+1) * dhr 
+            # download hourly data is not yet found
+            if not os.path.isfile(tmp_filename_downloaded): 
 
-                    full_time_str = "%s_%02d" % (dt.strftime("%Y-%m-%d"), beg_hr) 
-                    output_filename = os.path.join(download_dir, "%s-%s-%s.nc" % (file_prefix, varname, full_time_str, ))
+                days_of_month = int((month_end - month_beg) / pd.Timedelta(days=1))
+                days_list = [ "%02d" % d for d in range(1, days_of_month+1) ]
 
-                    # First round is just to decide which files
-                    # to be processed to enhance parallel job 
-                    # distribution. I use variable `phase` to label
-                    # this stage.
-                    if detect_phase is True:
+                if varname in var_type['pressure']:
+                    era5_dataset_name = 'reanalysis-era5-pressure-levels'
+                    params = {
+                                'product_type': 'reanalysis',
+                                'format': 'netcdf',
+                                'area': area,
+                                'day': days_list,
+                                'month': [
+                                        "%02d" % m,
+                                    ],
+                                'year': [
+                                        "%04d" % y,
+                                    ],
+                                'pressure_level': pressure_levels[varname] if varname in pressure_levels else full_pressure_levels,
+                                'variable': [varname,],
+                    }
+
+                elif varname in var_type['surface']:
                         
-                        need_work = need_work or ( not os.path.isfile(output_filename) )
-                        
-                        continue
-                            
-                    if os.path.isfile(output_filename):
-                        print("[%s] Data already exists. Skip." % (full_time_str, ))
-                        continue
-                    else:
-                        print("[%s] Now producing file: %s" % (full_time_str, output_filename,))
+                    era5_dataset_name = 'derived-era5-single-levels-daily-statistics'
+                    params = {
+                                'product_type': 'reanalysis',
+                                "daily_statistic": "daily_mean",
+                                "time_zone": "utc+00:00",
+                                "frequency": "1_hourly",
+                                'format': 'netcdf',
+                                'area': area,
+                                'day': days_list,
+                                'month': [
+                                        "%02d" % m,
+                                    ],
+                                'year': [
+                                        "%04d" % y,
+                                    ],
+                                'variable': [varname,],
+                    }
 
 
-                    # download hourly data is not yet found
-                    if not os.path.isfile(tmp_filename_downloaded): 
 
-                        days_of_month = int((month_end - month_beg) / pd.Timedelta(days=1))
-                        days_list = [ "%02d" % d for d in range(1, days_of_month+1) ]
+                print("Downloading file: %s" % ( tmp_filename_downloading, ))
+                c.retrieve(era5_dataset_name, params, tmp_filename_downloaded)
+                #c.retrieve(era5_dataset_name, params, tmp_filename_downloading)
+                #pleaseRun("ncks -O --mk_rec_dmn time %s %s" % (tmp_filename_downloading, tmp_filename_downloaded,))
 
-                        if varname in var_type['pressure']:
-                            era5_dataset_name = 'reanalysis-era5-pressure-levels'
-                            params = {
-                                        'product_type': 'reanalysis',
-                                        'format': 'netcdf',
-                                        'area': area,
-                                        'time': download_time,
-                                        'day': days_list,
-                                        'month': [
-                                                "%02d" % m,
-                                            ],
-                                        'year': [
-                                                "%04d" % y,
-                                            ],
-                                        'pressure_level': pressure_levels[varname] if varname in pressure_levels else full_pressure_levels,
-                                        'variable': [varname,],
-                            }
+                # Open and average with xarray
+                if download_ds is None:
+                    download_ds = xr.open_dataset(tmp_filename_downloaded)
 
-                        elif varname in var_type['surface']:
-                                
-                            era5_dataset_name = 'reanalysis-era5-single-levels'
-                            params = {
-                                        'product_type': 'reanalysis',
-                                        'format': 'netcdf',
-                                        'area': area,
-                                        'time': download_time,
-                                        'day': days_list,
-                                        'month': [
-                                                "%02d" % m,
-                                            ],
-                                        'year': [
-                                                "%04d" % y,
-                                            ],
-                                        'variable': [varname,],
-                            }
+                    
+                sel_time = [ dt ]
+                
+                print("Select time: ", sel_time)
+                shortname = mapping_longname_shortname[varname]
 
-                        print("Downloading file: %s" % ( tmp_filename_downloading, ))
-                        c.retrieve(era5_dataset_name, params, tmp_filename_downloaded)
-                        #c.retrieve(era5_dataset_name, params, tmp_filename_downloading)
-                        #pleaseRun("ncks -O --mk_rec_dmn time %s %s" % (tmp_filename_downloading, tmp_filename_downloaded,))
+                subset_da = download_ds[shortname].sel(valid_time=sel_time)
 
-                    # Open and average with xarray
-                    if download_ds is None:
-                        download_ds = xr.open_dataset(tmp_filename_downloaded)
+                if varname in [
+                    "total_precipitation",
+                    "convective_precipitation",
+                    "large_scale_precipitation",
+                ]:
+                    subset_da = subset_da.sum(dim="valid_time", keep_attrs=True)
+                else:
+                    subset_da = subset_da.mean(dim="valid_time", keep_attrs=True)
 
-                        
-                    sel_time = [ dt + pd.Timedelta(hours=dhr*i+j*dhr_download) for j in range(int(dhr / dhr_download)) ]
-                    print("Select time: ", sel_time)
-                    shortname = mapping_longname_shortname[varname]
-
-                    subset_da = download_ds[shortname].sel(valid_time=sel_time)
-
-                    if varname in [
-                        "total_precipitation",
-                        "convective_precipitation",
-                        "large_scale_precipitation",
-                    ]:
-                        subset_da = subset_da.sum(dim="valid_time", keep_attrs=True)
-                    else:
-                        subset_da = subset_da.mean(dim="valid_time", keep_attrs=True)
-
-                    subset_da = subset_da.expand_dims(dim="time", axis=0).assign_coords(
-                        {"time": [dt,]}
-                    )
-                    #pleaseRun("ncra -O -d time,%d,%d %s %s" % (dhr*i, dhr*(i+1)-1, tmp_filename_downloaded, output_filename,))
-                    subset_da.to_netcdf(output_filename, unlimited_dims="time")
-                    if os.path.isfile(output_filename):
-                        print("[%s] File `%s` is generated." % (time_str, output_filename,))
+                subset_da = subset_da.expand_dims(dim="time", axis=0).assign_coords(
+                    {"time": [dt,]}
+                )
+                #pleaseRun("ncra -O -d time,%d,%d %s %s" % (dhr*i, dhr*(i+1)-1, tmp_filename_downloaded, output_filename,))
+                subset_da.to_netcdf(output_filename, unlimited_dims="time")
+                if os.path.isfile(output_filename):
+                    print("[%s] File `%s` is generated." % (time_str, output_filename,))
 
 
         if detect_phase is True:
@@ -331,20 +309,6 @@ def doJob(t, varname, detect_phase=False):
 print("Going to focus on the following variables:")
 for i, varname in enumerate(varnames):
     print("[%02d] %s" % (i, varname))
-
-print("Going to download the following time:")
-for i, t in enumerate(download_time):
-    print("[%02d] %s" % (i, t))
-
-
-
-
-
-
-
-
-
-
 
 
 

@@ -30,8 +30,8 @@ def ifSkip(dt):
     return skip
 
 # This is for AR
-#beg_time = datetime.datetime(1992,    9, 1)
-#end_time = datetime.datetime(2017,    5, 1)
+beg_time = datetime.datetime(1992,    9, 1)
+end_time = datetime.datetime(2017,    5, 1)
 
 # This is for ECCC s2s project
 #beg_time = datetime.datetime(1997,    1,  1)
@@ -42,8 +42,8 @@ def ifSkip(dt):
 #end_time = datetime.datetime(2023,     2,  28)
 
 # This is for CW3E 2023 AR case
-beg_time = datetime.datetime(2023,     1,  1)
-end_time = datetime.datetime(2023,     2,  1)
+#beg_time = datetime.datetime(2023,     1,  1)
+#end_time = datetime.datetime(2023,     2,  1)
 
 
 archive_root = "data"
