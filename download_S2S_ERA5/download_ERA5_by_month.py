@@ -23,29 +23,32 @@ def ifSkip(dt):
 
     return skip
 
-nproc = 5
+nproc = 3
 
 
 download_times = dict(
     inst       = ["00:00",],
     daily_mean = [ "%02d:00" % i for i in range(24) ],
+    daily_acc = [ "%02d:00" % i for i in range(24) ],
 )
 
 download_variables = [
-    ('geopotential',        "inst"),
-    ('u_component_of_wind', "inst"),
-    ('v_component_of_wind', "inst"),
-    ('specific_humidity', "inst"),
-    ('10m_u_component_of_wind', "inst"),
-    ('10m_v_component_of_wind', "inst"),
-    ('mean_sea_level_pressure', "inst"),
-    ('sea_surface_temperature',                    "daily_mean"),
-    ('mean_surface_latent_heat_flux',              "daily_mean"),
-    ('mean_surface_sensible_heat_flux',            "daily_mean"),
-    ('mean_surface_net_short_wave_radiation_flux', "daily_mean"),
-    ('mean_surface_net_long_wave_radiation_flux',  "daily_mean"),
-    ('sea_surface_temperature',                    "daily_mean"),
-    ('time_mean_sea_surface_temperature',          "daily_mean"),
+#    ('sea_ice_cover',                              "daily_mean"),
+#    ('geopotential',        "inst"),
+#    ('u_component_of_wind', "inst"),
+#    ('v_component_of_wind', "inst"),
+#    ('specific_humidity', "inst"),
+#    ('10m_u_component_of_wind', "inst"),
+#    ('10m_v_component_of_wind', "inst"),
+#    ('mean_sea_level_pressure', "inst"),
+#    ('sea_surface_temperature',                    "daily_mean"),
+#    ('mean_surface_latent_heat_flux',              "daily_mean"),
+#    ('mean_surface_sensible_heat_flux',            "daily_mean"),
+#    ('mean_surface_net_short_wave_radiation_flux', "daily_mean"),
+#    ('mean_surface_net_long_wave_radiation_flux',  "daily_mean"),
+#    ('sea_surface_temperature',                    "daily_mean"),
+#    ('time_mean_sea_surface_temperature',          "daily_mean"),
+    ('total_precipitation',                    "daily_acc"),
 ]
 
 mapping_longname_shortname = {
@@ -63,6 +66,8 @@ mapping_longname_shortname = {
     'mean_surface_latent_heat_flux'      : 'mslhf',
     'mean_surface_net_long_wave_radiation_flux'  : 'msnlwrf',
     'mean_surface_net_short_wave_radiation_flux' : 'msnswrf',
+    'sea_ice_cover' : 'siconc',
+    'total_precipitation' : 'tp',
 }
 
 var_type = dict(
@@ -75,6 +80,7 @@ var_type = dict(
     ],
     
     surface  = [
+        'sea_ice_cover',
         '10m_u_component_of_wind',
         '10m_v_component_of_wind',
         'mean_sea_level_pressure',
@@ -85,6 +91,7 @@ var_type = dict(
         'mean_surface_latent_heat_flux',
         'mean_surface_net_short_wave_radiation_flux',
         'mean_surface_net_long_wave_radiation_flux',
+        'total_precipitation',
     ],
 
 )
@@ -144,6 +151,9 @@ def doJob(job_details, detect_phase=False):
         var_longname = job_details["var_longname"]
         var_shortname = mapping_longname_shortname[var_longname]
         freq = job_details["freq"]
+
+        if freq not in [  "daily_acc", "daily_mean", "inst" ]:
+            raise Exception("Unknown freq: %s" % (freq,))
 
         y = dt_ym.year
         m = dt_ym.month
@@ -250,20 +260,25 @@ def doJob(job_details, detect_phase=False):
 
                 # Open and average with xarray
                 if download_ds is None:
-                    download_ds = xr.open_dataset(tmp_filename_download)
+                    download_ds = xr.open_dataset(tmp_filename_download, engine="netcdf4")
 
                 sel_time = None
                 if freq == "inst":
                     sel_time = [dt,] 
-                elif freq == "daily_mean":
+                elif freq in [ "daily_mean", "daily_acc" ]:
                     sel_time = [ dt + pd.Timedelta(hours=k) for k in range(24) ]
-                    
+                 
                 print("Select time: ", sel_time)
                 print("ds = ", download_ds)
 
-                subset_da = download_ds[var_shortname].sel(time=sel_time)
+                subset_da = download_ds[var_shortname].sel(valid_time=sel_time)
 
-                subset_da = subset_da.mean(dim="time", keep_attrs=True).expand_dims(dim="time", axis=0).assign_coords(
+                if freq in ["inst", "daily_mean"]:
+                    subset_da = subset_da.mean(dim="valid_time", keep_attrs=True)
+                elif freq == "daily_acc":
+                    subset_da = subset_da.sum(dim="valid_time", keep_attrs=True)
+
+                subset_da = subset_da.expand_dims(dim="time", axis=0).assign_coords(
                     {"time": [dt,]}
                 )
                 

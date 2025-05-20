@@ -120,7 +120,7 @@ def generateRequest(model_version_dt, starttime_dts, ens_type, varset):
         # Surface inst (exclude: land-sea mask, orography, min/max 2m temp in the last 6hrs)
         req.update({
             "levtype": "sfc",
-            "param": "134/146/147/151/165/166/169/175/176/177/179/174008/228143/228144/228228",
+            "param": "228228/134/146/147/151/165/166/169/175/176/177/179/174008/228143/228144",
             "step": "24/48/72/96/120/144/168/192/216/240/264/288/312/336/360/384/408/432/456/480/504/528/552/576/600/624/648/672/696/720/744/768",
         })
     
@@ -231,7 +231,10 @@ def doJob(req, varset, starttime_md, year_group, output_file_group, output_separ
                     calendar = "proleptic_gregorian",
                 )
             )
-                
+            
+            # 2025-03-31: The offset should be 0 instead of 24 when it is 
+            #             instantaneous. I made a mistake long ago. I should
+            #             correct this in the future.
             offset = 12 if varset in ["surf_avg", "ocn2d_avg"] else 24
             leadtime_da = xr.DataArray(
                 data=24 * np.arange(number_of_leadtime) + offset,  # for average variable its at the noon
@@ -302,17 +305,17 @@ for i, year_group in enumerate(year_groups):
 
 
 input_args = []
-#for model_version in ["GEPS5", "GEPS6"]:
-for model_version in ["GEPS5",]:# "GEPS6"]:
+for model_version in ["GEPS5", "GEPS6"]:
+#for model_version in ["GEPS5",]:# "GEPS6"]:
 
     print("[MODEL VERSION]: ", model_version)
 
     for dt in dts_in_year:
 
 
-        if ifSkip(dt):
-            print("Skip this date: ", dt)
-            continue
+        #if ifSkip(dt):
+        #    print("Skip this date: ", dt)
+        #    continue
     
         model_version_date = ECCC_tools.modelVersionReforecastDateToModelVersionDate(model_version, dt)
 
@@ -337,11 +340,10 @@ for model_version in ["GEPS5",]:# "GEPS6"]:
                 raise Exception("Weird. Check.")
             
             
-            for ens_type in ["ctl", "pert"]:
+            for ens_type in ["pert", "ctl"]:
 
-                for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
-                #for varset in ["UVTZ", "Q", "surf_inst"]:
-                #for varset in ["W",]:
+                #for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
+                for varset in ["surf_inst",]:
                     
                     if varset == "ocn2d_avg":
 

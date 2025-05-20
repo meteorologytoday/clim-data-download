@@ -14,8 +14,7 @@ c = cdsapi.Client()
 
 
 dataset_name = "ERA5-derived-daily"
-frequencies = ["6_hourly", "1_hourly"][1:]
-frequencies = ["6_hourly", ]
+frequencies = ["6_hourly", ]#"1_hourly"]
 def ifSkip(dt):
 
     skip = False
@@ -24,7 +23,7 @@ def ifSkip(dt):
 
     return skip
 
-nproc = 3
+nproc = 10
 max_attempts = 5
 
 varnames = [
@@ -33,9 +32,12 @@ varnames = [
 #    'v_component_of_wind',
 #    'specific_humidity',
 
-#    '10m_u_component_of_wind',
-#    '10m_v_component_of_wind',
+    '10m_u_component_of_wind',
+    '10m_v_component_of_wind',
 #    'mean_sea_level_pressure',
+#    "top_net_thermal_radiation",
+#    "total_precipitation",
+
 #    '2m_temperature',
 #    'surface_sensible_heat_flux',
 #    'surface_latent_heat_flux',
@@ -48,8 +50,6 @@ varnames = [
 #    'mean_surface_sensible_heat_flux',
 #    'mean_surface_net_solar_radiation',
 #    'mean_surface_net_thermal_radiation',
-    "top_net_thermal_radiation",
-    "total_precipitation",
 
 #    "convective_precipitation",
 #    "convective_rain_rate",
@@ -152,13 +152,14 @@ if os.path.isdir(download_tmp_dir):
 def doJob(details):
     # phase \in ['detect', 'work']
 
-    year = details["year"]
+    year  = details["year"]
+    month = details["month"]
     frequency = details["frequency"]
     detect_phase = details["detect_phase"]
     varname = details["varname"]
     max_attempts = details["max_attempts"]
     
-    label = f"{year:04d}-{frequency:s}-{varname:s}"
+    label = f"{year:04d}-{month:04d}-{frequency:s}-{varname:s}"
     result = None
 
     for attempt in range(1, max_attempts+1):
@@ -168,10 +169,11 @@ def doJob(details):
         result = dict(details = details, status="UNKNOWN", need_work=False)
 
         try:
-
-            dts = list( pd.date_range(pd.Timestamp(year=year, month=1, day=1), pd.Timestamp(year=year, month=12, day=31), freq="D", inclusive="both") ) 
+            month_beg = pd.Timestamp(year=year, month=month, day=1)
+            nextmonth_beg = month_beg + pd.offsets.MonthBegin()
+            dts = list( pd.date_range(month_beg, nextmonth_beg, freq="D", inclusive="left") ) 
             
-            time_str = "%04d" % year
+            time_str = "%04d-%02d" % (year, month)
             
             file_prefix = "ERA5-derived-daily"
      
@@ -213,8 +215,7 @@ def doJob(details):
             print(f"Some files do not exist for ({year:04d}-{frequency:s}-{varname:s}). Download a whole year of data now.") 
 
 
-            months_list = ["%02d" % m for m in range(1, 13)]
-    #        months_list = ["%02d" % m for m in range(1, 2)]
+            months_list = ["%02d" % month ]
             days_list = [ "%02d" % d for d in range(1, 32) ]
 
             if varname in var_type['pressure']:
@@ -309,30 +310,31 @@ input_args = []
 
 for frequency in frequencies:
     for year in range(year_beg, year_end+1):
+        for month in range(1, 13):
+            for varname in varnames:
+           
+                details = dict(
+                    year = year,
+                    month = month,
+                    varname = varname,
+                    frequency = frequency,
+                    detect_phase = True,
+                    max_attempts = max_attempts,
+                )
+         
+                result = doJob(details)
+                time_str= f"{year:04d}-{month:02d} ({frequency:s})"
+                if result['status'] != 'OK':
+                    print("[detect] Failed to detect variable `%s` of %s" % (varname, time_str))
+                
+                if result['need_work'] is False:
+                    print("[detect] Files all exist for variable `%s` of %s" % (varname, time_str))
+                else:
 
-        for varname in varnames:
-       
-            details = dict(
-                year = year,
-                varname = varname,
-                frequency = frequency,
-                detect_phase = True,
-                max_attempts = max_attempts,
-            )
-     
-            result = doJob(details)
-            
-            if result['status'] != 'OK':
-                print("[detect] Failed to detect variable `%s` of year %d (%s)" % (varname, year, frequency))
-            
-            if result['need_work'] is False:
-                print("[detect] Files all exist for (varname, year) =  (%s, %d, %s)." % (varname, year, frequency))
-            else:
+                    details["detect_phase"] = False
 
-                details["detect_phase"] = False
-
-                input_args.append((details,))
-            
+                    input_args.append((details,))
+                
 print("Create dir: %s" % (download_tmp_dir,))
 Path(download_tmp_dir).mkdir(parents=True, exist_ok=True)
 
