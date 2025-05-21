@@ -2,7 +2,7 @@ import pandas as pd
 import xarray as xr
 import os
 import numpy as np
-
+from pathlib import Path
 
 archive_root="./ECCC_data/data20_20240723"
 
@@ -256,6 +256,19 @@ def open_dataset(rawpost, varset, model_version, start_time):
         ds = ds.isel(latitude=slice(None, None, -1))
 
     return ds
+
+
+def genFilePath(model_version, ens_type, varset, start_time, root = "."):
+
+    root = Path(root)
+
+
+    return root / model_version / ens_type / varset / "ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{start_time:s}.nc".format(
+        model_version = model_version,
+        ens_type = ens_type,
+        varset = varset,
+        start_time  = start_time.strftime("%Y_%m-%d"),
+    )
 
 
 if __name__ == "__main__":   
