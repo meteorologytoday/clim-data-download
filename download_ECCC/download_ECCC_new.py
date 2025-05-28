@@ -8,7 +8,11 @@ import argparse
 import numpy as np
 import pandas as pd
 import xarray as xr
+
 import ECCC_tools
+import ECCC_tools.hindcast
+import ECCC_tools.forecast
+
 import shutil
 
 from ecmwfapi import ECMWFDataServer
@@ -187,31 +191,52 @@ def generateRequest(
 
     return req
 
-def doJob(details):#, detect_phase=False):
+def doJob(details, detect_phase=False):
     
     result = dict(
         details = details,
         status="UNKNOWN",
-        need_work=False,
+        need_work=None,
+        output_file = None,
     )
 
     try:
 
         # phase \in ['detect', 'work']
+        model_version_date = details["model_version_date"]
+        nwp_type        = details["nwp_type"]
+        rawpost         = details["rawpost"]
+        model_version   = details["model_version"]
+        ens_type        = details["ens_type"]
+        varset          = details["varset"]
+        start_time      = details["start_time"]
+        lead_days       = details["lead_days"]
+        archive_root    = details["archive_root"]
         
-        req = details["req"] 
-        output_separate_files = details["output_separate_files"]
-        output_file_group = details["output_file_group"]
-    
-        number_of_leadtime = details["number_of_leadtime"]
-     
-        result = dict(req=req, status="UNKNOWN", need_work=None)
+        
+               
+        output_file = ECCC_tools.essentials.genFilePath(
+            model_version,
+            nwp_type,
+            rawpost,
+            varset,
+            start_time,
+            root=archive_root,
+            ens_type=ens_type,
+        )
+        
+        result["output_file"] = output_file
+        if detect_phase:
+            result["need_work"] = not output_file.exists()
+            result["status"] = "OK"
+            return result
+
+        req = generateRequest(nwp_type, [start_time,], ens_type, varset, model_version_date=model_version_date)
+        output_file.parent.mkdir(exist_ok=True, parents=True)
 
         # Detect end
-
-        tmp_file  = download_tmp_dir / ("%s.grib" % output_file_group)
-        tmp_file2 = download_tmp_dir / ("%s.nc_flat" % output_file_group)
-        tmp_file3 = download_tmp_dir / ("%s.nc_before_reorg" % output_file_group)
+        tmp_file  = download_tmp_dir / ("%s.tmp.grib" % (str(output_file.name),))
+        tmp_file2  = download_tmp_dir / ("%s.tmp.nc" % (str(output_file.name),))
 
         # Set download file name
         req.update(dict(target=str(tmp_file)))
@@ -229,19 +254,14 @@ def doJob(details):#, detect_phase=False):
         ds = xr.open_dataset(tmp_file2, engine="netcdf4")
         received_dts = ds.coords["time"]
         
-        # First is the number of timesteps
-        if len(received_dts) != number_of_leadtime * len(year_group):
-            raise Exception("The downloaded data has %d time steps but we are expecting %d time steps" % (
-                len(received_dts),
-                number_of_leadtime * len(year_group),
-            ))
-        
         # Second is to check datetime
         if varset in [ "surf_avg", "ocn2d_avg"]:
            fixed_offset = pd.Timedelta(days=0)
         else:
            fixed_offset = pd.Timedelta(days=1)
 
+       
+        """ 
         for i, test_year in enumerate(year_group):
             
             test_dts = received_dts[i*number_of_leadtime:(i+1)*number_of_leadtime]
@@ -254,66 +274,61 @@ def doJob(details):#, detect_phase=False):
                 print("test_dts     = ", test_dts)
                 print("expected_dts = ", expected_dts)
                 raise Exception("The downloaded data do not have correct expecting datetime. The received dts are: %s" % (str(received_years),))
+        """
 
         # ====================================================================
 
-        for i, output_year in enumerate(year_group):
+        # Now change time to lead_time and pre-pend a 
+        # start_time dimension
+        start_time_da = xr.DataArray(
+            data = [ int( (start_time - pd.Timestamp("1970-01-01") ) / pd.Timedelta(hours=1) ) ],
+            dims = ["start_time"],
+            attrs=dict(
+                description="Model start time",
+                units="hours since 1970-01-01 00:00:00",
+                calendar = "proleptic_gregorian",
+            )
+        )
+        
+        # 2025-03-31: The offset should be 0 instead of 24 when it is 
+        #             instantaneous. I made a mistake long ago. I should
+        #             correct this in the future.
+    
+        number_of_leadtime = lead_days
+        offset = 12 if varset in ["surf_avg", "ocn2d_avg"] else 24
+        lead_time_da = xr.DataArray(
+            data=24 * np.arange(number_of_leadtime) + offset,  # for average variable its at the noon
+            dims=["lead_time"],
+            attrs=dict(
+                description="Lead time in hours",
+                units="hours",
+            ),
+        )
+
+        ds = ds.rename_dims(dict(time="lead_time")).assign_coords(
+            dict(
+                lead_time = lead_time_da,
+            ) 
+        )
+
+        ds = ds.drop_vars('time').expand_dims(
+            dim={ "start_time" : start_time_da },
+            axis=0
+        ).assign_coords( # Need to do this again because expand_dims does not propagate starttime_da attributes
+            start_time = start_time_da
+        )
+
+
+        print("Output file: ", output_file)
+        ds.to_netcdf(
+            output_file,
+            unlimited_dims="start_time",
+        )
+
+
+        ds.close()
             
-            pleaseRun("ncks -O -d time,{begin_idx:d},{end_idx:d} {input:s} {output:s}".format(
-                begin_idx = i     * number_of_leadtime,
-                end_idx   = (i+1) * number_of_leadtime - 1,
-                input = tmp_file2,
-                output = tmp_file3,
-            ))
-
-
-            # Now change time to lead_time and pre-pend a 
-            # start_time dimension
-            starttime = pd.Timestamp(year=output_year, month=starttime_md.month, day=starttime_md.day)
-            starttime_da = xr.DataArray(
-                data = [ int( (starttime - pd.Timestamp("1970-01-01") ) / pd.Timedelta(hours=1) ) ],
-                dims = ["start_time"],
-                attrs=dict(
-                    description="Model start time",
-                    units="hours since 1970-01-01 00:00:00",
-                    calendar = "proleptic_gregorian",
-                )
-            )
-            
-            # 2025-03-31: The offset should be 0 instead of 24 when it is 
-            #             instantaneous. I made a mistake long ago. I should
-            #             correct this in the future.
-            offset = 12 if varset in ["surf_avg", "ocn2d_avg"] else 24
-            leadtime_da = xr.DataArray(
-                data=24 * np.arange(number_of_leadtime) + offset,  # for average variable its at the noon
-                dims=["lead_time"],
-                attrs=dict(
-                    description="Lead time in hours",
-                    units="hours",
-                ),
-            )
-
-            ds = xr.open_dataset(tmp_file3, engine="netcdf4")
-            ds = ds.rename_dims(dict(time="lead_time")).assign_coords(
-                dict(
-                    lead_time = leadtime_da,
-                ) 
-            )
-
-            ds = ds.drop_vars('time').expand_dims(
-                dim={ "start_time" : starttime_da },
-                axis=0
-            ).assign_coords( # Need to do this again because expand_dims does not propagate starttime_da attributes
-                start_time = starttime_da
-            )
-
-            ds.to_netcdf(
-                output_separate_files[i],
-                unlimited_dims="start_time",
-            )
-
-            
-        for remove_file in [tmp_file, tmp_file2, tmp_file3]:
+        for remove_file in [tmp_file, tmp_file2]:
             if os.path.isfile(remove_file):
                 os.remove(remove_file)
 
@@ -340,10 +355,9 @@ if __name__ == "__main__":
     parser.add_argument('--nwp-type', type=str, help='Type of NWP. Valid options: `forecast`, `hindcast`.', required=True, choices=["forecast", "hindcast"])
     parser.add_argument('--archive-root', type=str, help='Input directories.', default="ECCC_data")
     parser.add_argument('--date-range', type=str, nargs=2, help="Date range to download", required=True)
+    parser.add_argument('--varsets', type=str, nargs="+", help="Varsets", required=True)
     parser.add_argument('--lead-days', type=int, help="How many lead days" , default=32)
     parser.add_argument('--model-versions', type=str, nargs="+")
-    parser.add_argument('--hindcast-year-range', type=int, nargs=2, help="If `--nwp-type` is hindcast, then need to download a bunch of years. This option defines the range of years (inclusive on both year).", default=None)
-    parser.add_argument('--hindcast-download-group-size-by-year', type=int, help="When downloading hindcast, you want to download multiple years for one batch. This parameter controls the size of the batch.", default=20)
     parser.add_argument('--nproc', type=int, help="Number of jobs" , default=1)
     args = parser.parse_args()
 
@@ -360,115 +374,99 @@ if __name__ == "__main__":
 
     failed_output_files = []
 
-    if args.nwp_type == "hindcast":
-        
-        print("## HINDCAST ##")
-        # Loop through a year
-        beg_year = args.hindcast_year_range[0]
-        end_year = args.hindcast_year_range[1]
-        years = np.arange(beg_year, end_year+1)
-        download_group_size_by_year = args.hindcast_download_group_size_by_year
-        dts_in_year = pd.date_range("2001-01-01", "2001-12-31", freq="D", inclusive="both")
+    rawpost = "raw"
 
-        year_groups = [
-            years[download_group_size_by_year*i:download_group_size_by_year*(i+1)]
-            for i in range(int(np.ceil(len(years) / download_group_size_by_year)))
-        ]
+    dts = pd.date_range(date_beg, date_end, freq="D", inclusive="both")
+    input_args = []
 
-        print("Year groups: ")
-        print(year_groups)
-        for i, year_group in enumerate(year_groups):
-            print("[%d]" % (i,), year_group)
+    for model_version in args.model_versions:
 
+        print("[MODEL VERSION]: ", model_version)
+        for dt in dts:
+    
 
-        input_args = []
-
-
-
-
-        for model_version in args.model_versions:
-
-            print("[MODEL VERSION]: ", model_version)
-            for dt in dts_in_year:
-                
-                model_version_date = ECCC_tools.modelVersionReforecastDateToModelVersionDate(model_version, dt)
-
+            if args.nwp_type == "hindcast":       
+                model_version_date = ECCC_tools.hindcast.modelVersionReforecastDateToModelVersionDate(model_version, dt)
                 if model_version_date is None:
                     continue
-                 
-                print("The date %s exists on ECMWF database. " % (dt.strftime("%m/%d")))
+            elif args.nwp_type == "forecast":
                 
-                for year_group in year_groups:
+                model_version_date = dt
+                # see https://confluence.ecmwf.int/display/S2S/ECCC+Model
+
+
+                if not ECCC_tools.forecast.checkIfModelVersionDateIsValid(model_version, dt):
+                    continue
+
+
+                days_of_week = []
+                if model_version == "GEPS8":
+                    days_of_week = [0, 3] # Mon and Thu
+                elif model_version in ["GEPS5", "GEPS6", "GEPS7"]:
+                    days_of_week = [3, ] # Thu only
+                
+                if dt.weekday() not in days_of_week:
+                    continue
+             
+            print("The date %s exists on ECMWF database. " % (dt.strftime("%m/%d")))
+            
+            for ens_type in ["ctl", "pert"]:
+                
+                #for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
+                for varset in args.varsets:
                     
-                    month = dt.month
-                    day = dt.day
-                    starttime_dts = [
-                        pd.Timestamp(year=y, month=month, day=day)
-                        for y in year_group
-                    ]
+                    if varset == "ocn2d_avg":
+
+                        # GEPS5 is persistent SST run. There is no ocean model.
+                        if model_version == "GEPS5":
+                            continue
+
+                        # According to Dr. Hai Lin, 
+                        # ECCC started providing ocean data after 2020-02-06.
+                        # Therefore, there is no ocean data prior to that date.
+                        if model_version_date < pd.Timestamp("2020-02-06"):
+                            continue
                     
-                    if len(starttime_dts) != len(year_group):
-                        print(starttime_dts)
-                        print(year_group)
-                        raise Exception("Weird. Check.")
+                    details = dict(
+                        model_version_date = model_version_date,
+                        nwp_type        = args.nwp_type,
+                        model_version   = model_version,
+                        rawpost         = rawpost,
+                        ens_type        = ens_type,
+                        varset          = varset,
+                        start_time      = dt,
+                        lead_days       = args.lead_days,
+                        archive_root    = Path(args.archive_root),
+                    )
+
+
+                    result = doJob(details, detect_phase=True)
                     
-                    for ens_type in ["pert", "ctl"]:
-
-                        #for varset in ["UVTZ", "W", "Q", "surf_inst", "surf_avg", "ocn2d_avg"]:
-                        for varset in ["surf_inst",]:
-                            
-                            if varset == "ocn2d_avg":
-
-                                # GEPS5 is persistent SST run. There is no ocean model.
-                                if model_version == "GEPS5":
-                                    continue
-
-                                # According to Dr. Hai Lin, 
-                                # ECCC started providing ocean data after 2020-02-06.
-                                # Therefore, there is no ocean data prior to that date.
-                                if model_version_date < pd.Timestamp("2020-02-06"):
-                                    continue
-                            
-                            output_dir = output_dir_root / model_version / ens_type / varset
-
-                            output_file_group = genTmpFileByYearGroup(model_version, ens_type, varset, year_group, starttime_dts[0])
-
-                            output_separate_files = [
-                                ECCC_tools.genFilePath(model_version, ens_type, varset, start_time_dt, root=output_dir) 
-                                for start_time_dt in starttime_dts 
-                            ]
-                            
-                            if np.all([ f.exists() for f in output_separate_files ]):
-                                print("Files %s already exist. Skip it." % (", ".join(output_separate_files),))
-                                continue
-                                    
-                            req = generateRequest(args.nwp_type, starttime_dts, ens_type, varset, model_version_date=model_version_date)
-
-                            details = dict(
-                                req = req,
-                                output_file_group = output_file_group,
-                                output_separate_files = output_separate_files,
-                            )
-                            # pick the first starttime_dts to only give month and day
-                            input_args.append((details,))
-                            
-                           
+                    if result["need_work"]:
+                        # pick the first starttime_dts to only give month and day
+                        input_args.append((details,))
+                    else:
+                        output_file = str(result["output_file"])
+                        print("File %s already exists. Skip." % (output_file,)) 
+                    
+                   
 
 
     with Pool(processes=args.nproc) as pool:
 
         results = pool.starmap(doJob, input_args)
-
         for i, result in enumerate(results):
             if result['status'] != 'OK':
-                print('!!! Failed to generate output file %s.' % (",".join(result['output_files'],)))
-                failed_dates.append(result['output_file_full'])
+                output_file = str(result['output_file'])
+                print('!!! Failed to generate output file %s.' % (output_file,))
+                failed_dates.append(output_file)
 
 
     print("Tasks finished.")
 
-    print("Failed output files: ")
+    print("### Failed output files: ###")
     for i, failed_output_file in enumerate(failed_output_files):
         print("%d : %s" % (i+1, failed_output_file,))
+    print("############################")
 
     print("Done.")

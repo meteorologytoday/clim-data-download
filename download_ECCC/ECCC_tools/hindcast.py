@@ -4,8 +4,6 @@ import os
 import numpy as np
 from pathlib import Path
 
-archive_root="./ECCC_data/data20_20240723"
-
 model_versions = ["GEPS5", "GEPS6", ]
 
 # The bounds are included
@@ -120,35 +118,6 @@ def printValidModelVersionDates():
             print("[%s - %d] %s " % (model_version, i, model_version_date.strftime("%Y-%m-%d")))
 
 
-ECCC_longshortname_mapping = {
-    "geopotential" : "gh",
-    "sea_surface_temperature" : "sst",
-    'mean_surface_sensible_heat_flux'    : 'msshf',
-    'mean_surface_latent_heat_flux'      : 'mslhf',
-    "surface_pressure": "sp",
-    "mean_sea_level_pressure": "msl",
-    "10m_u_component_of_wind":  "u10",
-    "10m_v_component_of_wind":  "v10",
-    "IVT_x":  "IVT_x",
-    "IVT_y":  "IVT_y",
-    "IVT":  "IVT",
-    "IWV":  "IWV",
-}
-
-mapping_varset_varname = {
-    'Q' : ['Q',],
-    'UVTZ' : ['U',],
-    'AR' : ['IVT', 'IVT_x', 'IVT_y', 'IWV',],
-    'surf_inst' : ["sshf", "slhf", "ssr", "ssrd", "str", "strd", "ttr",],
-    'hf_surf_inst' : ["msshf", "mslhf", "mssr", "mssrd", "mstr", "mstrd", "mttr",],
-}
-
-mapping_varname_varset = {}
-for varset, varnames in mapping_varset_varname.items():
-    for varname in varnames:
-        mapping_varname_varset[varname] = varset
-
-
 
 
 """
@@ -177,98 +146,6 @@ def modelVersionReforecastDateToModelVersionDate(model_version, reforecast_date)
     return None
 
 
-
-def open_dataset(rawpost, varset, model_version, start_time):
-  
-    if model_version[:8] == "GEPS6sub":
-        model_version = "GEPS6"
- 
-    if rawpost == "postprocessed":
-        
-        start_time_str = start_time.strftime("%Y_%m-%d")
- 
-        save_dir = os.path.join(
-            archive_root,
-            rawpost,
-            model_version,
-            varset,
-        )
-      
-        loading_filename = "{save_dir:s}/ECCC-S2S_{model_version:s}_{varset:s}_{start_time:s}.nc".format(
-            save_dir = save_dir,
-            model_version = model_version,
-            varset = varset,
-            start_time = start_time_str,
-        )
-
-        ds = xr.open_dataset(loading_filename)
-
-       
-    elif rawpost == "raw":
-        merge_data = [] 
-        # Load control and perturbation
-        for ens_type in ["ctl", "pert"]:
-            
-            save_dir = os.path.join(
-                archive_root,
-                rawpost,
-                model_version,
-                ens_type,
-                varset,
-            )
-            
-            start_time_str = start_time.strftime("%Y_%m-%d")
-              
-            loading_filename = "{save_dir:s}/ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{start_time:s}.nc".format(
-                save_dir = save_dir,
-                model_version = model_version,
-                ens_type = ens_type,
-                varset = varset,
-                start_time = start_time_str,
-            )
-
-
-            ds = xr.open_dataset(loading_filename)
-            #ds = ds.rename_dims(time="lead_time").rename_vars(time="lead_time").expand_dims(dim={'start_time': [start_time,]}) 
-
-            #print(ds)
-            if ens_type == "ctl":
-                ds = ds.expand_dims(dim={'number': [0,]}, axis=2)
-
-
-            #print("### ", ens_type)
-            #print(ds)
-            
-            ds = ds.isel(latitude=slice(None, None, -1))
-
-            merge_data.append(ds)
-
-        ds = xr.merge(merge_data)
-
-    else:
-
-        raise Exception("Unknown rawpost value. Only accept: `raw` and `postprocessed`.")
-
-    # Finally flip latitude
-    lat = ds.coords["latitude"]
-    if np.all( (lat[1:] - lat[:-1]) < 0 ):
-        print("Flip latitude so that it is monotonically increasing")
-        ds = ds.isel(latitude=slice(None, None, -1))
-
-    return ds
-
-
-def genFilePath(model_version, ens_type, varset, start_time, root = "."):
-
-    root = Path(root)
-
-
-    return root / model_version / ens_type / varset / "ECCC-S2S_{model_version:s}_{ens_type:s}_{varset:s}_{start_time:s}.nc".format(
-        model_version = model_version,
-        ens_type = ens_type,
-        varset = varset,
-        start_time  = start_time.strftime("%Y_%m-%d"),
-    )
 
 
 if __name__ == "__main__":   

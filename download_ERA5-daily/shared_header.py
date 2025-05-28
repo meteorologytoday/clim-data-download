@@ -29,8 +29,8 @@ def ifSkip(dt):
 
     return skip
 
-year_beg = 1992
-year_end = 2017
+year_beg = 2024
+year_end = 2025
 
 archive_root = "data"
 

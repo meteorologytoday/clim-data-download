@@ -13,7 +13,7 @@ import shutil
 c = cdsapi.Client()
 
 
-dataset_name = "ERA5-derived-daily"
+dataset_name = "ERA5-derived-daily-global"
 frequencies = ["6_hourly", ]#"1_hourly"]
 def ifSkip(dt):
 
@@ -32,9 +32,9 @@ varnames = [
 #    'v_component_of_wind',
 #    'specific_humidity',
 
-    '10m_u_component_of_wind',
-    '10m_v_component_of_wind',
-#    'mean_sea_level_pressure',
+#    '10m_u_component_of_wind',
+#    '10m_v_component_of_wind',
+    'mean_sea_level_pressure',
 #    "top_net_thermal_radiation",
 #    "total_precipitation",
 
@@ -44,7 +44,7 @@ varnames = [
 #    'surface_net_solar_radiation',
 #    'surface_net_thermal_radiation',
 
-#    'sea_surface_temperature',
+    'sea_surface_temperature',
 
 #    'mean_surface_latent_heat_flux',
 #    'mean_surface_sensible_heat_flux',
@@ -111,7 +111,7 @@ var_type = dict(
 
 # This is the old version
 area = [
-    40, -180, -40, 180,
+    90, -180, -90, 180,
 ]
 
 
