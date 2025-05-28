@@ -19,7 +19,7 @@ def genFilePath(
 
     number_str = "%04d" % number
 
-    return root / origin / model_version / nwp_type / varset / number_str / "{origin:s}_{model_version:s}_{nwp_type:s}_{varset:s}_{start_time:s}.{number:04d}.nc".format(
+    return root / origin / model_version / nwp_type / varset / number_str / "{origin:s}_{model_version:s}_{nwp_type:s}_{varset:s}_{start_time:s}.{number:s}.nc".format(
         origin = origin,
         model_version = model_version,
         varset = varset,

@@ -1,3 +1,4 @@
+print("Loading libraries")
 import re
 import functools
 from multiprocessing import Pool
@@ -21,6 +22,8 @@ from ecmwfapi import ECMWFDataServer
 server = ECMWFDataServer()
 
 import os
+
+print("Done")
 
 def parseRanges(input_str):
     numbers = []
@@ -240,14 +243,16 @@ def doJob(details, detect_phase=False):
             self_defined_data=self_defined_data,
         )
         
-        for output_file in output_files:
+        for _, output_file in output_files.items():
             output_file.parent.mkdir(exist_ok=True, parents=True)
        
         
  
         # Detect end
-        tmp_file  = download_tmp_dir / ("%s.tmp.grib" % (str(output_file.name),))
-        tmp_file2  = download_tmp_dir / ("%s.tmp.nc" % (str(output_file.name),))
+
+        tmp_output_filename = "%s.%s" % ( output_files[list(output_files.keys())[0]].name, ",".join(["%d" % number for number in numbers]) )
+        tmp_file  = download_tmp_dir / ("%s.tmp.grib" % (str(tmp_output_filename),))
+        tmp_file2  = download_tmp_dir / ("%s.tmp.nc" % (str(tmp_output_filename),))
 
         # Set download file name
         req.update(dict(target=str(tmp_file)))
@@ -276,10 +281,10 @@ def doJob(details, detect_phase=False):
                 units="hours since 1970-01-01 00:00:00",
                 calendar = "proleptic_gregorian",
             )
-        )
+        ).rename("start_time")
         
         number_of_leadtime = lead_days
-        inst_or_avg = "avg" if re.search(r"_avg^", varset) else "inst"
+        inst_or_avg = "avg" if re.search(r"_avg$", varset) else "inst"
         offset = 12 if inst_or_avg == "avg" else 0
 
         lead_time_da = xr.DataArray(
@@ -289,12 +294,12 @@ def doJob(details, detect_phase=False):
                 description="Lead time in hours",
                 units="hours",
             ),
-        )
+        ).rename("lead_time")
 
         lead_time_bnds_da = None
         if inst_or_avg == "avg":
             
-            lead_time_bnds = np.array((len(lead_time_da), 2), dtype=float)
+            lead_time_bnds = np.zeros((len(lead_time_da), 2), dtype=float)
             lead_time_bnds[:, 0] = 24 * np.arange(lead_time_bnds.shape[0])
             lead_time_bnds[:, 1] = lead_time_bnds[:, 0] + 24
             lead_time_bnds_da = xr.DataArray(
@@ -304,7 +309,7 @@ def doJob(details, detect_phase=False):
                     description="Lead time in hours",
                     units="hours",
                 ),
-            )
+            ).rename("lead_time_bnds")
 
 
         ds = ds.rename_dims(dict(time="lead_time")).assign_coords(
@@ -329,7 +334,7 @@ def doJob(details, detect_phase=False):
         if req["type"] == "cf":
             ds = ds.expand_dims(
                 dim={'number': [0,]},
-                axis=1,
+                axis=2,
             )
 
         for number in numbers:
@@ -383,17 +388,16 @@ if __name__ == "__main__":
     print(args)
 
 
-    numbers = sorted(parseRanges(args.numbers))
+    numbers = sorted(np.unique(parseRanges(args.numbers)))
 
     numbers_batches = []
     if numbers[0] == 0:
         numbers_batches.append([0,])
-    
         numbers = numbers[1:]
 
     while len(numbers) > 0:
         
-        if len(numbers) <= args.number_batch_size:
+        if len(numbers) >= args.number_batch_size:
             numbers_batches.append(numbers[0:args.number_batch_size])
             numbers = numbers[args.number_batch_size:]
         else:
@@ -401,13 +405,16 @@ if __name__ == "__main__":
             break
 
 
+    print("Divided number batches: ")
+    for i, numbers_batch in enumerate(numbers_batches):
+        print("[%2d]: " % (i+1,), numbers_batch)
 
 
     date_beg = pd.Timestamp(args.date_range[0])
     date_end = pd.Timestamp(args.date_range[1])
     number_of_leadtime = args.lead_days
 
-    output_dir_root = Path(args.archive_root) / ("data_%s" % args.nwp_type) / "raw"
+    output_dir_root = Path(args.archive_root)
     
     download_tmp_dir = output_dir_root / "tmp"
     download_tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -422,7 +429,6 @@ if __name__ == "__main__":
         print("[MODEL VERSION]: ", model_version)
         for dt in dts:
     
-
             if args.nwp_type == "hindcast":       
                 model_version_date = ECCC_tools.hindcast.modelVersionReforecastDateToModelVersionDate(model_version, dt)
                 if model_version_date is None:
@@ -430,9 +436,9 @@ if __name__ == "__main__":
             elif args.nwp_type == "forecast":
                 
                 model_version_date = dt
+               
+                print("Test dt: ", dt) 
                 # see https://confluence.ecmwf.int/display/S2S/ECCC+Model
-
-
                 if not S2S_tools.forecast.checkIfModelVersionDateIsValid(args.origin, model_version, dt):
                     continue
 
@@ -455,8 +461,6 @@ if __name__ == "__main__":
                         if model_version_date < pd.Timestamp("2020-02-06"):
                             continue
                     
-                    root = Path(args.archive_root)
-                    download_tmp_dir = root / "tmp"
                     details = dict(
                         model_version_date = model_version_date,
                         origin          = args.origin,
@@ -466,7 +470,7 @@ if __name__ == "__main__":
                         varset          = varset,
                         start_time      = dt,
                         lead_days       = args.lead_days,
-                        archive_root    = root,
+                        archive_root    = output_dir_root,
                         self_defined_data = None,
                         download_tmp_dir = download_tmp_dir,
                     )

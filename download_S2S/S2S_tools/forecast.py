@@ -4,16 +4,16 @@ import pandas as pd
 
 
 infos = dict(
-    ecwf = dict(
+    ecmf = dict(
         CY48R1 = dict(
             model_version_date_bounds = ( pd.Timestamp("2023-06-27"), pd.Timestamp("2024-11-11"), ),
             ensemble_members = 100,
-        )
+        ),
  
         CY49R1 = dict(
             model_version_date_bounds = ( pd.Timestamp("2024-11-12"), pd.Timestamp("2028-12-31"), ),
             ensemble_members = 100,
-        )
+        ),
         
     ),
 
@@ -77,4 +77,5 @@ def checkIfModelVersionDateIsValid(origin, model_version, dt):
             if dt.weekday() not in days_of_week:
                 result = False
 
+    print("result: ", result)
     return result
