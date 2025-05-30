@@ -50,12 +50,12 @@ tmp_dir.mkdir(parents=True, exist_ok=True)
 def ifSkip(dt):
 
     skip = False
-    if not ( dt.month in [1,] ):
+    if not ( dt.month in [9, 10, 11, 12, 1, 2, 3, 4] ):
         skip = True
 
     return skip
 
-nproc = 1
+nproc = 5
 
 dts = pd.date_range(beg_time, end_time, freq="D", inclusive="both")
 
