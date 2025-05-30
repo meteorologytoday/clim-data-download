@@ -80,7 +80,7 @@ def generateRequest(
         "dataset": "s2s",
         "expver": "prod",
         "model": "glob",
-        "origin": "ecmf",
+        "origin": origin,
         "time": "00:00:00",
         "target": "output"
     }
@@ -269,6 +269,11 @@ def doJob(details, detect_phase=False):
         # ============ Check if flattened data has correct years =============
         ds = xr.open_dataset(tmp_file2, engine="netcdf4")
         received_dts = ds.coords["time"]
+
+
+        print("ds = ", ds)
+
+
         # ====================================================================
 
         # Now change time to lead_time and pre-pend a 
@@ -382,7 +387,7 @@ if __name__ == "__main__":
     parser.add_argument('--model-versions', type=str, nargs="+")
     parser.add_argument('--nproc', type=int, help="Number of jobs" , default=1)
     parser.add_argument('--numbers', type=str, required=True)
-    parser.add_argument('--number-batch-size', type=int, default=5)
+    parser.add_argument('--number-batch-size', type=int, default=10)
     args = parser.parse_args()
 
     print(args)

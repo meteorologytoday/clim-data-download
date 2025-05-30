@@ -4,6 +4,18 @@ import pandas as pd
 
 
 infos = dict(
+
+    # NCEP
+    kwbc = dict(
+        CFSv2 = dict(
+            model_version_date_bounds = ( pd.Timestamp("2015-03-10"), pd.Timestamp("2030-12-31"), ),
+            ensemble_members = 16,
+        ),
+ 
+    ),
+
+
+
     ecmf = dict(
         CY48R1 = dict(
             model_version_date_bounds = ( pd.Timestamp("2023-06-27"), pd.Timestamp("2024-11-11"), ),

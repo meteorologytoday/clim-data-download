@@ -35,13 +35,13 @@ def open_dataset(
     nwp_type,
     varset,
     start_time,
-    number,
+    numbers,
     root=".",
 ):
 
 
     filenames = []
-    for n in number:
+    for number in numbers:
         
         loading_filename = genFilePath(
             origin,
@@ -49,10 +49,13 @@ def open_dataset(
             nwp_type,
             varset,
             start_time,
+            number,
             root = root,
         )
 
         filenames.append(loading_filename)
+
+    print(filenames)
 
     ds = xr.open_mfdataset(filenames)
 
