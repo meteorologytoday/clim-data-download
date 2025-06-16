@@ -18,8 +18,8 @@ dataset_name = "ERA5"
 def ifSkip(dt):
 
     skip = False
-    #if not ( dt.month in [10, 11, 12, 1, 2, 3, 4] ):
-    #    skip = True
+    if not ( dt.month in [12, 1, 2, 3, 4] ):
+        skip = True
 
     return skip
 
@@ -34,7 +34,7 @@ download_times = dict(
 
 download_variables = [
 #    ('sea_ice_cover',                              "daily_mean"),
-#    ('geopotential',        "inst"),
+    ('geopotential',        "inst"),
 #    ('u_component_of_wind', "inst"),
 #    ('v_component_of_wind', "inst"),
 #    ('specific_humidity', "inst"),
@@ -48,7 +48,7 @@ download_variables = [
 #    ('mean_surface_net_long_wave_radiation_flux',  "daily_mean"),
 #    ('sea_surface_temperature',                    "daily_mean"),
 #    ('time_mean_sea_surface_temperature',          "daily_mean"),
-    ('total_precipitation',                    "daily_acc"),
+#    ('total_precipitation',                    "daily_acc"),
 ]
 
 mapping_longname_shortname = {
@@ -120,7 +120,7 @@ full_pressure_levels = [
 ]
 
 pressure_levels = {
-    'geopotential' : ['500', '850', '925', '1000', ],
+    'geopotential' : ['200', '500', '850', '925', '1000', ],
     'v_component_of_wind' : ['200', '300', '500', '700', '850', '925', '1000'],
     'u_component_of_wind' : ['200', '300', '500', '700', '850', '925', '1000'],
     'specific_humidity' :       ['200', '300', '500', '700', '850', '925', '1000'],

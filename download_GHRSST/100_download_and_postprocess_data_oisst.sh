@@ -2,16 +2,13 @@
 
 source 000_setup.sh
 
-
-raw_data_dir=$data_dir/physical/sst_raw/oisst
-postprocessed_data_dir=$data_dir
-
 echo "# Download oisst"
-./src/data_download/oisst/download_oisst.sh $raw_data_dir
+./download_code/oisst/download_oisst.sh $rawdata_dir
 
 echo "# Postprocessing oisst"
-python3 ./src/data_download/oisst/postprocess.py \
-    --input-root $raw_data_dir              \
-    --output-root $postprocessed_data_dir   \
-    --year-rng 2007 2024      
+python3 ./download_code/oisst/postprocess_daily.py \
+    --input-root $rawdata_root    \
+    --output-root $ppdata_root    \
+    --date-range 2024-06-01 2024-08-01 \
+    --mode daily      
 

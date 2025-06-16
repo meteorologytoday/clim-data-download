@@ -67,6 +67,7 @@ def generateRequest(
     origin,
     nwp_type,
     starttime_dts,
+    number_of_leaddays,
     varset,
     numbers,
     model_version_date=None,
@@ -84,6 +85,8 @@ def generateRequest(
         "time": "00:00:00",
         "target": "output"
     }
+        
+    inst_or_avg = "avg" if re.search(r"_avg$", varset) else "inst"
 
     if nwp_type == "forecast":
         
@@ -120,7 +123,38 @@ def generateRequest(
         
         req["type"] = "pf"
         req["number"] = "/".join([ "%d" % n for n in numbers ])
+       
+
+    # Determine steps for snapshot and average. Different origins seem
+    # to provide different time. For example, ecmf provided snapshot at 
+    # forecast time 0 but cwao does not.
+    # This part is complicated. Maybe after a while I can wrap it into
+    # a function call.
+    time_arr = np.arange(number_of_leaddays) * 24
+    step_snapshot = ["%d" % s for s in np.arange(number_of_leaddays) * 24]
+    step_avg = ["%d-%d" % (s, s+24) for s in np.arange(number_of_leaddays) * 24]
+  
+    missing_lead_time_idxs = None
+ 
+    if origin == "cwao":
         
+        if inst_or_avg == "inst":
+            # no hour 0
+            step_snapshot = step_snapshot[1:]
+            missing_lead_time_idxs = [0,]
+        
+    if origin == "kwbc": # GEFS
+        
+        if inst_or_avg == "avg":
+            # no first day
+            step_avg = step_avg[1:] 
+            missing_lead_time_idxs = [0,]
+
+    step_snapshot = "/".join(step_snapshot)
+    step_avg = "/".join(step_avg)
+ 
+ 
+ 
     # Add in field information
     if self_defined_data is not None:
         varset = self_defined_data["varset"]
@@ -133,7 +167,7 @@ def generateRequest(
             "levelist": "10/50/100/200/300/500/700/850/925/1000",
             "levtype": "pl",
             "param": "130/131/132/156",
-            "step": "24/48/72/96/120/144/168/192/216/240/264/288/312/336/360/384/408/432/456/480/504/528/552/576/600/624/648/672/696/720/744/768",
+            "step": step_snapshot,
         })
 
     elif varset == "W":
@@ -143,7 +177,7 @@ def generateRequest(
             "levelist": "500",
             "levtype": "pl",
             "param": "135",
-            "step": "24/48/72/96/120/144/168/192/216/240/264/288/312/336/360/384/408/432/456/480/504/528/552/576/600/624/648/672/696/720/744/768",
+            "step": step_snapshot,
         })
 
     elif varset == "Q":
@@ -153,7 +187,7 @@ def generateRequest(
             "levelist": "200/300/500/700/850/925/1000",
             "levtype": "pl",
             "param": "133",
-            "step": "24/48/72/96/120/144/168/192/216/240/264/288/312/336/360/384/408/432/456/480/504/528/552/576/600/624/648/672/696/720/744/768",
+            "step": step_snapshot,
         })
 
     elif varset == "surf_inst":
@@ -162,7 +196,7 @@ def generateRequest(
         req.update({
             "levtype": "sfc",
             "param": "228228/134/146/147/151/165/166/169/175/176/177/179/174008/228143/228144",
-            "step": "24/48/72/96/120/144/168/192/216/240/264/288/312/336/360/384/408/432/456/480/504/528/552/576/600/624/648/672/696/720/744/768",
+            "step": step_snapshot,
         })
     
     elif varset == "surf_avg":
@@ -170,8 +204,9 @@ def generateRequest(
         # Surface avg
         req.update({
             "levtype": "sfc",
-            "param": "31/33/34/136/167/168/228032/228141/228164",
-            "step": "0-24/24-48/48-72/72-96/96-120/120-144/144-168/168-192/192-216/216-240/240-264/264-288/288-312/312-336/336-360/360-384/384-408/408-432/432-456/456-480/480-504/504-528/528-552/552-576/576-600/600-624/624-648/648-672/672-696/696-720/720-744/744-768",
+            #"param": "31/33/34/136/167/168/228032/228141/228164",
+            "param": "31/34",
+            "step": step_avg,
         })
 
     elif varset == "ocn2d_avg":
@@ -180,11 +215,11 @@ def generateRequest(
         req.update({
             "levtype": "o2d",
             "param": "151126/151131/151132/151145/151163/151175/151219/151225/174098",
-            "step": "0-24/24-48/48-72/72-96/96-120/120-144/144-168/168-192/192-216/216-240/240-264/264-288/288-312/312-336/336-360/360-384/384-408/408-432/432-456/456-480/480-504/504-528/528-552/552-576/576-600/600-624/624-648/648-672/672-696/696-720/720-744/744-768",
+            "step": step_avg,
         })
 
 
-    return req
+    return req, missing_lead_time_idxs
 
 def doJob(details, detect_phase=False):
     
@@ -233,10 +268,11 @@ def doJob(details, detect_phase=False):
             result["status"] = "OK"
             return result
 
-        req = generateRequest(
+        req, missing_lead_time_idxs = generateRequest(
             origin,
             nwp_type,
             [start_time,],
+            lead_days,
             varset,
             numbers,
             model_version_date=model_version_date,
@@ -269,13 +305,13 @@ def doJob(details, detect_phase=False):
         # ============ Check if flattened data has correct years =============
         ds = xr.open_dataset(tmp_file2, engine="netcdf4")
         received_dts = ds.coords["time"]
-
-
+        
+        
         print("ds = ", ds)
-
-
+        
+        
         # ====================================================================
-
+        
         # Now change time to lead_time and pre-pend a 
         # start_time dimension
         start_time_da = xr.DataArray(
@@ -291,10 +327,21 @@ def doJob(details, detect_phase=False):
         number_of_leadtime = lead_days
         inst_or_avg = "avg" if re.search(r"_avg$", varset) else "inst"
         offset = 12 if inst_or_avg == "avg" else 0
+            
 
+        lead_time_array = 24 * np.arange(number_of_leadtime) + offset
+        valid_lead_time_idx = np.arange(len(lead_time_array), dtype=int)
+
+        if missing_lead_time_idxs is not None:
+            for missing_lead_time_idx in missing_lead_time_idxs:
+                valid_lead_time_idx = valid_lead_time_idx[valid_lead_time_idx != missing_lead_time_idx]
+       
+        lead_time_array = lead_time_array[valid_lead_time_idx] 
+        print("Lead time array: ", lead_time_array) 
+        
         lead_time_da = xr.DataArray(
-            data=24 * np.arange(number_of_leadtime) + offset,  # for average variable its at the noon
-            dims=["lead_time"],
+            data=lead_time_array,
+            dims=["lead_time",],
             attrs=dict(
                 description="Lead time in hours",
                 units="hours",
@@ -305,8 +352,8 @@ def doJob(details, detect_phase=False):
         if inst_or_avg == "avg":
             
             lead_time_bnds = np.zeros((len(lead_time_da), 2), dtype=float)
-            lead_time_bnds[:, 0] = 24 * np.arange(lead_time_bnds.shape[0])
-            lead_time_bnds[:, 1] = lead_time_bnds[:, 0] + 24
+            lead_time_bnds[:, 0] = lead_time_array - 12
+            lead_time_bnds[:, 1] = lead_time_array + 12
             lead_time_bnds_da = xr.DataArray(
                 data=lead_time_bnds,
                 dims=["lead_time", "bnd"],

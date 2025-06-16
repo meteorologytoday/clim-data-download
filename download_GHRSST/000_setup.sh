@@ -2,11 +2,13 @@
 
 work_root=`pwd`
 
-export PYTHONPATH=$work_root/src/lib:$PYTHONPATH
+export PYTHONPATH=$work_root/lib:$PYTHONPATH
 
 echo "PYTHONPATH = $PYTHONPATH"
 
-data_dir=/home/t2hsu/temp_project/data_project-SST-spectrum/data
+data_root=/data/SO3/t2hsu/data/SST/
+rawdata_root=$data_root/raw
+ppdata_root=$data_root/postprocessed
 
 
 

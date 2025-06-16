@@ -1,12 +1,21 @@
 #!/bin/bash
 
-output_dir=../../data/physical/sst_raw/oisst
+if [ "$1" = "" ] ; then
+    echo "Error: output folder needs to be provided as the first argument."
+    exit 1;
+fi
+
+output_root="$1"
+output_dir=$output_root/oisst
+
+echo "Output root :: $output_root"
+echo "Output dir :: $output_dir"
 
 mkdir -p $output_dir
 
 #for datatype in anom mean ; do
 for datatype in mean ; do
-for y in $( seq 2005 2024 ) ; do
+for y in $( seq 2024 2025 ) ; do
 
     year_str=$( printf "%04d" $y )
     filename=sst.day.${datatype}.${year_str}.nc

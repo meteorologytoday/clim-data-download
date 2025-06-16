@@ -34,7 +34,7 @@ def ifSkip(dt):
 
 # This is for ECCC s2s project
 beg_time = datetime.datetime(1997,    1,  1)
-end_time = datetime.datetime(2018,    2, 1)
+end_time = datetime.datetime(2018,    4, 1)
 
 
 archive_root = "S2S"

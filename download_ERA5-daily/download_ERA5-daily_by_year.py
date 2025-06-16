@@ -23,7 +23,7 @@ def ifSkip(dt):
 
     return skip
 
-nproc = 10
+nproc = 5
 max_attempts = 5
 
 varnames = [

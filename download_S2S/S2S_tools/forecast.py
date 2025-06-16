@@ -5,6 +5,14 @@ import pandas as pd
 
 infos = dict(
 
+    # JMA
+    rjtd = dict(
+        CPS3 = dict(
+            model_version_date_bounds = ( pd.Timestamp("2023-02-19"), pd.Timestamp("2030-12-31"), ),
+        ),
+    ),
+
+
     # NCEP
     kwbc = dict(
         CFSv2 = dict(

@@ -2,7 +2,7 @@ import numpy as np
 import xarray as xr
 import traceback
 import os
-import pathlib 
+from pathlib import Path 
 import pandas as pd
 
 
@@ -38,7 +38,7 @@ for datatype in datatypes:
     output_dir = output_dir_fmt.format(varname=new_varname)
  
     print("Making output folder if not exists: ", output_dir)
-    pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     for year in range(year_rng[0], year_rng[1]+1):
         
