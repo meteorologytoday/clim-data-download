@@ -89,9 +89,6 @@ if __name__ == "__main__":
         
         elif args.mode == "daily":
             
-            ds_backup = None 
-            
-            d = None
             for dt in pd.date_range(args.date_range[0], args.date_range[1], freq="D", inclusive="left"):
                
                 try: 
@@ -106,6 +103,11 @@ if __name__ == "__main__":
                
                     output_file = data_loader.getFilenameFromDatetime(dataset, dt, root=args.output_root)
                     
+                    if output_file.exists():
+                        print("Output file %s already exists. Skip." % (str(output_file),))
+                        continue                   
+
+ 
                     ds = xr.open_dataset(input_file)
                     
                     first_nonzero_lon = findfirst(ds.coords["lon"] > 0)
@@ -120,8 +122,11 @@ if __name__ == "__main__":
                     ds = ds.assign_coords(
                         lon = ds.coords["lon"].to_numpy() % 360,
                         lat = ds.coords["lat"].to_numpy(),
-                    )
-                    
+                    ).rename({"analysed_sst": "sst"})
+                   
+
+
+ 
                     print("Output: ", output_file)
                     ds.to_netcdf(
                         output_file,
