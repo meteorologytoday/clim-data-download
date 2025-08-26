@@ -38,7 +38,7 @@ def genTRMMFileLink(dt):
     return link
 
 
-print("Login earthaccess... ", ending="")
+print("Login earthaccess... ", end="")
 earthaccess.login()
 session = earthaccess.get_requests_https_session()
 print("Done.")
@@ -80,7 +80,7 @@ def doJob(details, detect_phase=False):
         hours_skip      = details["hours_skip"]
         archive_root    = details["archive_root"]
         
-        output_file = TRMM_tools.essentials.genFilePath(
+        output_file = TRMM_tools.genFilePath(
             dt=dt,
             hours_skip = hours_skip,
             varname="precipitation",
@@ -95,30 +95,43 @@ def doJob(details, detect_phase=False):
         
         output_file.parent.mkdir(exist_ok=True, parents=True)
         
-        download_dts = pd.date_range(dt, dt + pd.Timedelta(hours=hours_skip), freq=pd.Timedelta(minutes=30))
+        download_dts = pd.date_range(dt, dt + pd.Timedelta(hours=hours_skip), freq=pd.Timedelta(minutes=30), inclusive="left")
 
         #with tempfile.TemporaryDirectory(prefix="TRMM_DATA_%s" % (dt.strftime("%Y-%m-%dT%H:%M:%S"),) ) as tmpdirname:
             
         #    tmpdir = Path(tmpdirname)
         #    print("created temporary directory : %s" % (str(tmpdir),))
 
+        print("Now do the job for file: ", str(output_file))
         ds = []
-        for download_dt in download_dts:
+        for i, download_dt in enumerate(download_dts):
             
             link = genTRMMFileLink(download_dt)
-            print("Download link: ", link)
+            print("[%d] Download link: %s" % (i+1, link))
             r = session.get(link)
             ds.append(xr.open_dataset(BytesIO(r.content), engine="h5netcdf", group="/Grid"))
 
 
         ds = xr.merge(ds)
+        #print("Merged ds: ", ds)
 
-        print("Merged ds: ", ds)
+        t = [dt,]
+        ds = ds["precipitation"].mean(dim="time").expand_dims(dim={"time": t}, axis=0).transpose("time", "lat", "lon").to_dataset()
+
+        encoding = {
+            varname : {
+                "zlib" : True,
+                "complevel" : 9,
+            }
+            for varname in ds.data_vars
+        }
 
         print("Output file: ", output_file)
         ds.to_netcdf(
             output_file,
             unlimited_dims="start_time",
+            format="NETCDF4",
+            encoding = encoding,
         )
 
         ds.close()
